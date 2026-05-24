@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yaatv"
+version = "0.1.0"
+description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-optimized MP4."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "cavyion" }
+]
+dependencies = [
+  "mutagen>=1.47",
+  "Pillow>=10.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=8.0",
+  "twine>=5.1"
+]
+
+[project.scripts]
+yaatv = "yaatv.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "integration: tests that run external tools such as FFmpeg"
+]
