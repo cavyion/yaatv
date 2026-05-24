@@ -45,6 +45,9 @@ jobs:
           yaatv --version
           python -m yaatv --version
 
+      - name: Run tests
+        run: python -m pytest
+
       - name: Build package
         run: python -m build
 

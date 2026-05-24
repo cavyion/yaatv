@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -41,7 +42,6 @@ class AudioMetadata:
     sample_rate: int | None
     artist: str | None
     title: str | None
-    duration: float | None = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,21 @@ class AudioPlan:
     copy: bool
     codec_args: tuple[str, ...]
     filter_args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class OutputStats:
+    width: int | None
+    height: int | None
+    video_codec: str | None
+    pixel_format: str | None
+    color_range: str | None
+    color_space: str | None
+    color_transfer: str | None
+    color_primaries: str | None
+    frame_rate: float | None
+    audio_codec: str | None
+    audio_sample_rate: int | None
 
 
 def pad_seconds(value: str) -> float:
@@ -119,6 +134,15 @@ def find_ffmpeg() -> str:
     return ffmpeg
 
 
+def find_ffprobe() -> str:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise YaatvError(
+            "FFprobe was not found on PATH. Install FFmpeg from https://ffmpeg.org/download.html"
+        )
+    return ffprobe
+
+
 def validate_image(path: Path) -> tuple[int, int]:
     try:
         with Image.open(path) as image:
@@ -142,7 +166,6 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
     info = audio.info
     bitrate = _audio_bitrate(path, info)
     sample_rate = _int_or_none(getattr(info, "sample_rate", None))
-    duration = _positive_float_or_none(getattr(info, "length", None))
     codec = _audio_codec(audio, path)
 
     return AudioMetadata(
@@ -151,7 +174,6 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
         sample_rate=sample_rate,
         artist=_tag_value(getattr(audio, "tags", None), ("artist", "albumartist", "TPE1", "\xa9ART")),
         title=_tag_value(getattr(audio, "tags", None), ("title", "TIT2", "\xa9nam")),
-        duration=duration,
     )
 
 
@@ -190,14 +212,6 @@ def _int_or_none(value: object) -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
-
-
-def _positive_float_or_none(value: object) -> float | None:
-    try:
-        result = float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-    return result if result and result > 0 else None
 
 
 def _tag_value(tags: object, keys: Iterable[str]) -> str | None:
@@ -294,12 +308,6 @@ def choose_audio_plan(metadata: AudioMetadata, pad: float) -> AudioPlan:
     )
 
 
-def output_duration(metadata: AudioMetadata, pad: float) -> float | None:
-    if metadata.duration is None:
-        return None
-    return metadata.duration + pad
-
-
 def is_high_quality_aac(metadata: AudioMetadata) -> bool:
     return (
         is_aac_codec(metadata.codec)
@@ -350,7 +358,6 @@ def build_ffmpeg_command(
     target_size: tuple[int, int],
     audio_plan: AudioPlan,
     overwrite: bool,
-    output_duration_seconds: float | None = None,
 ) -> list[str]:
     width, height = target_size
     video_filter = (
@@ -358,11 +365,6 @@ def build_ffmpeg_command(
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
-    )
-    duration_args = (
-        ["-t", format_seconds(output_duration_seconds)]
-        if output_duration_seconds is not None
-        else ["-shortest"]
     )
 
     return [
@@ -394,7 +396,7 @@ def build_ffmpeg_command(
         "bt709",
         *audio_plan.codec_args,
         *audio_plan.filter_args,
-        *duration_args,
+        "-shortest",
         "-movflags",
         "+faststart",
         "-vf",
@@ -437,11 +439,171 @@ def run_ffmpeg(command: Sequence[str]) -> int:
     return completed.returncode
 
 
+def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_streams",
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise YaatvError(
+            "FFprobe was not found on PATH. Install FFmpeg from https://ffmpeg.org/download.html"
+        ) from exc
+
+    if completed.returncode != 0:
+        details = completed.stderr.strip()
+        message = f"Could not verify output with FFprobe: {output_path}"
+        raise YaatvError(f"{message}: {details}" if details else message)
+
+    try:
+        data = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise YaatvError(f"Could not parse FFprobe output for: {output_path}") from exc
+
+    streams = data.get("streams", [])
+    if not isinstance(streams, list):
+        streams = []
+    video = _first_stream(streams, "video")
+    audio = _first_stream(streams, "audio")
+
+    return OutputStats(
+        width=_int_or_none(video.get("width")),
+        height=_int_or_none(video.get("height")),
+        video_codec=_string_or_none(video.get("codec_name")),
+        pixel_format=_string_or_none(video.get("pix_fmt")),
+        color_range=_string_or_none(video.get("color_range")),
+        color_space=_string_or_none(video.get("color_space")),
+        color_transfer=_string_or_none(video.get("color_transfer")),
+        color_primaries=_string_or_none(video.get("color_primaries")),
+        frame_rate=_rate_or_none(video.get("avg_frame_rate") or video.get("r_frame_rate")),
+        audio_codec=_string_or_none(audio.get("codec_name")),
+        audio_sample_rate=_int_or_none(audio.get("sample_rate")),
+    )
+
+
+def verify_output_stats(stats: OutputStats, target_size: tuple[int, int]) -> None:
+    target_width, target_height = target_size
+    failures: list[str] = []
+
+    if (stats.width, stats.height) != target_size:
+        failures.append(f"expected {target_width}x{target_height}, got {_resolution_label(stats)}")
+    if stats.video_codec != "h264":
+        failures.append(f"expected H.264 video, got {stats.video_codec or 'unknown'}")
+    if stats.pixel_format != "yuv420p":
+        failures.append(f"expected yuv420p video, got {stats.pixel_format or 'unknown'}")
+    if stats.color_range not in {"tv", "mpeg"}:
+        failures.append(f"expected limited color range, got {stats.color_range or 'unknown'}")
+    if stats.color_space != "bt709":
+        failures.append(f"expected bt709 colorspace, got {stats.color_space or 'unknown'}")
+    if stats.color_transfer != "bt709":
+        failures.append(f"expected bt709 transfer, got {stats.color_transfer or 'unknown'}")
+    if stats.color_primaries != "bt709":
+        failures.append(f"expected bt709 primaries, got {stats.color_primaries or 'unknown'}")
+    if stats.frame_rate is None or abs(stats.frame_rate - 1.0) > 0.01:
+        failures.append(f"expected 1fps video, got {_frame_rate_label(stats.frame_rate)}")
+    if stats.audio_codec != "aac":
+        failures.append(f"expected AAC audio, got {stats.audio_codec or 'unknown'}")
+    if stats.audio_sample_rate != COPY_AAC_SAMPLE_RATE:
+        failures.append(
+            f"expected 48kHz audio, got {_sample_rate_label(stats.audio_sample_rate)}"
+        )
+
+    if failures:
+        raise YaatvError("Output verification failed: " + "; ".join(failures))
+
+
+def format_output_stats(stats: OutputStats) -> str:
+    return ", ".join(
+        (
+            _resolution_label(stats),
+            f"{_video_codec_label(stats.video_codec)}/{stats.pixel_format or 'unknown'}",
+            _color_label(stats),
+            f"{_frame_rate_label(stats.frame_rate)} video",
+            f"{_audio_codec_label(stats.audio_codec)} {_sample_rate_label(stats.audio_sample_rate)}",
+        )
+    )
+
+
+def print_output_summary(output_path: Path, stats: OutputStats, stderr: TextIO) -> None:
+    print(f"Created {output_path}", file=stderr)
+    print(f"Verified: {format_output_stats(stats)}", file=stderr)
+
+
+def _first_stream(streams: Iterable[object], codec_type: str) -> dict[str, object]:
+    for stream in streams:
+        if isinstance(stream, dict) and stream.get("codec_type") == codec_type:
+            return stream
+    return {}
+
+
+def _string_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    result = str(value).strip()
+    return result if result and result != "N/A" else None
+
+
+def _rate_or_none(value: object) -> float | None:
+    text = _string_or_none(value)
+    if not text:
+        return None
+    try:
+        if "/" in text:
+            numerator, denominator = text.split("/", 1)
+            denominator_value = float(denominator)
+            return float(numerator) / denominator_value if denominator_value else None
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _resolution_label(stats: OutputStats) -> str:
+    if stats.width is None or stats.height is None:
+        return "unknown resolution"
+    return f"{stats.width}x{stats.height}"
+
+
+def _video_codec_label(codec: str | None) -> str:
+    return "H.264" if codec == "h264" else codec or "unknown"
+
+
+def _audio_codec_label(codec: str | None) -> str:
+    return "AAC" if codec == "aac" else codec or "unknown"
+
+
+def _color_label(stats: OutputStats) -> str:
+    values = {stats.color_space, stats.color_transfer, stats.color_primaries}
+    if values == {"bt709"}:
+        return "bt709"
+    return "/".join(value or "unknown" for value in (stats.color_space, stats.color_transfer, stats.color_primaries))
+
+
+def _frame_rate_label(frame_rate: float | None) -> str:
+    if frame_rate is None:
+        return "unknown fps"
+    return f"{frame_rate:g}fps"
+
+
+def _sample_rate_label(sample_rate: int | None) -> str:
+    if sample_rate is None:
+        return "unknown sample rate"
+    if sample_rate % 1000 == 0:
+        return f"{sample_rate // 1000}kHz"
+    return f"{sample_rate}Hz"
+
+
 def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: TextIO = sys.stderr) -> int:
     args = parse_args(argv)
     audio_path = require_file(args.audio, "Audio file")
     image_path = require_file(args.image, "Cover image")
     ffmpeg = find_ffmpeg()
+    ffprobe = find_ffprobe()
     metadata = read_audio_metadata(audio_path)
     image_size = validate_image(image_path)
     target_size = RESOLUTIONS[args.resolution]
@@ -461,9 +623,15 @@ def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: Te
         target_size=target_size,
         audio_plan=audio_plan,
         overwrite=overwrite,
-        output_duration_seconds=output_duration(metadata, args.pad),
     )
-    return run_ffmpeg(command)
+    exit_code = run_ffmpeg(command)
+    if exit_code != 0:
+        return exit_code
+
+    stats = probe_output(ffprobe, output_path)
+    verify_output_stats(stats, target_size)
+    print_output_summary(output_path, stats, stderr=stderr)
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

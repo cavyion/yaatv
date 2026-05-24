@@ -10,6 +10,7 @@ It uses FFmpeg for the actual encode. FFmpeg is not bundled, so install it separ
 
 ```sh
 ffmpeg -version
+ffprobe -version
 ```
 https://ffmpeg.org/download.html
 
@@ -50,6 +51,7 @@ Flags:
 - Other audio is encoded as AAC-LC 384kbps at 48kHz.
 - Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
 - Video uses 1fps H.264, CRF 16, BT.709 color metadata, yuv420p, and `+faststart`.
+- Completed files are verified with FFprobe and summarized after encoding.
 - Existing output files require confirmation before overwrite.
 
 Source audio below 256kbps and cover images smaller than the target resolution print warnings unless `--no-warn` is set.

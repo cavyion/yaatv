@@ -8,7 +8,6 @@ __pycache__/
 
 build/
 dist/
-tests/
 *.egg-info/
 *.spec
 yaatv_launcher.py
@@ -19,4 +18,3 @@ env/
 
 .DS_Store
 Thumbs.db
-MANIFEST.in
