@@ -66,6 +66,7 @@ Before tagging, run the same checks used by CI:
 python -m pip install -e ".[dev]"
 yaatv --version
 python -m yaatv --version
+python -m pytest
 python -m build
 python -m twine check dist/*
 ```
