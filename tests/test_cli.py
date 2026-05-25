@@ -2,6 +2,7 @@ from pathlib import Path
 from io import StringIO
 
 import pytest
+from PIL import Image
 
 from yaatv.cli import (
     AudioMetadata,
@@ -19,6 +20,7 @@ from yaatv.cli import (
     quality_warnings,
     read_audio_metadata,
     sanitize_filename,
+    validate_image,
     verify_output_stats,
 )
 
@@ -77,6 +79,28 @@ def test_command_uses_shortest_without_duration_cap() -> None:
 
     assert "-shortest" in command
     assert "-t" not in command
+
+
+def test_command_uses_duration_cap_when_audio_duration_is_known() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="mp3", bitrate=128_000, sample_rate=48_000, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.mp3"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        output_duration=145,
+    )
+
+    assert "-shortest" in command
+    assert command[command.index("-t") + 1] == "145"
+    assert command.index("-t") < len(command) - 1
 
 
 def test_high_quality_aac_is_copied() -> None:
@@ -165,6 +189,18 @@ def test_unreadable_audio_reports_user_facing_error(tmp_path: Path) -> None:
 
     with pytest.raises(YaatvError, match="Could not read audio metadata"):
         read_audio_metadata(audio_path)
+
+
+def test_animated_image_is_rejected(tmp_path: Path) -> None:
+    image_path = tmp_path / "cover.gif"
+    frames = [
+        Image.new("RGB", (12, 12), (255, 0, 0)),
+        Image.new("RGB", (12, 12), (0, 0, 255)),
+    ]
+    frames[0].save(image_path, save_all=True, append_images=frames[1:], duration=100, loop=0)
+
+    with pytest.raises(YaatvError, match="static image"):
+        validate_image(image_path)
 
 
 def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> None:

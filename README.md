@@ -8,6 +8,8 @@ yaatv -a track.flac -i cover.jpg -o output.mp4 --resolution 1440p
 
 Give it a track, give it artwork, get a video file back.
 
+Website and docs: <https://yaatv.org>
+
 ## Requirements
 
 yaatv uses FFmpeg and FFprobe for encoding and verification. They are not bundled, so install FFmpeg first and make sure both commands work:
@@ -135,3 +137,5 @@ Tagging a version that starts with `v` builds the Windows, Linux, and macOS asse
 git tag v0.1.0
 git push origin main --tags
 ```
+
+The website is served from `docs/` with GitHub Pages and uses `docs/CNAME` for `yaatv.org`.

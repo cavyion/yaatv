@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -42,6 +43,7 @@ class AudioMetadata:
     sample_rate: int | None
     artist: str | None
     title: str | None
+    duration: float | None = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +149,11 @@ def validate_image(path: Path) -> tuple[int, int]:
     try:
         with Image.open(path) as image:
             width, height = image.size
+            if getattr(image, "is_animated", False) or getattr(image, "n_frames", 1) > 1:
+                raise YaatvError(f"Cover image must be a static image: {path}")
             image.verify()
+    except YaatvError:
+        raise
     except (UnidentifiedImageError, OSError) as exc:
         raise YaatvError(f"Could not read cover image: {path}") from exc
 
@@ -174,6 +180,7 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
         sample_rate=sample_rate,
         artist=_tag_value(getattr(audio, "tags", None), ("artist", "albumartist", "TPE1", "\xa9ART")),
         title=_tag_value(getattr(audio, "tags", None), ("title", "TIT2", "\xa9nam")),
+        duration=_float_or_none(getattr(info, "length", None)),
     )
 
 
@@ -210,6 +217,13 @@ def _audio_codec(audio: object, path: Path) -> str | None:
 def _int_or_none(value: object) -> int | None:
     try:
         return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
 
@@ -358,6 +372,7 @@ def build_ffmpeg_command(
     target_size: tuple[int, int],
     audio_plan: AudioPlan,
     overwrite: bool,
+    output_duration: float | None = None,
 ) -> list[str]:
     width, height = target_size
     video_filter = (
@@ -401,6 +416,7 @@ def build_ffmpeg_command(
         "+faststart",
         "-vf",
         video_filter,
+        *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
         str(output_path),
     ]
 
@@ -610,6 +626,7 @@ def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: Te
     output_path = normalize_output_path(args.output if args.output else default_output_path(audio_path, metadata))
     overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr)
     audio_plan = choose_audio_plan(metadata, args.pad)
+    output_duration = math.ceil(metadata.duration + args.pad) if metadata.duration is not None else None
 
     if not args.no_warn:
         for warning in quality_warnings(metadata, image_size, target_size):
@@ -623,6 +640,7 @@ def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: Te
         target_size=target_size,
         audio_plan=audio_plan,
         overwrite=overwrite,
+        output_duration=output_duration,
     )
     exit_code = run_ffmpeg(command)
     if exit_code != 0:

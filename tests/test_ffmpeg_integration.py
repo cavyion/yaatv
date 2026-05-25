@@ -52,6 +52,23 @@ def test_cli_encodes_valid_mp4_with_ffmpeg(tmp_path: Path) -> None:
     assert "Verified: 1920x1080" in stderr.getvalue()
     assert "AAC 48kHz" in stderr.getvalue()
 
+    duration = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1:nk=1",
+            str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert float(duration.stdout.strip()) <= 3
+
     verification = subprocess.run(
         [ffmpeg, "-v", "error", "-i", str(output_path), "-f", "null", "-"],
         check=False,
