@@ -297,7 +297,7 @@ def install_windows_ffmpeg(
 
         install_dir.mkdir(parents=True, exist_ok=True)
         for tool_name in WINDOWS_FFMPEG_TOOLS:
-            (staging_dir / tool_name).replace(install_dir / tool_name)
+            shutil.move(str(staging_dir / tool_name), str(install_dir / tool_name))
 
     print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
     return install_dir
