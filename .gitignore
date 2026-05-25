@@ -1,5 +1,6 @@
 assets/
 *.mp4
+!docs/docs-assets/yaatv-sample.mp4
 
 __pycache__/
 *.py[cod]

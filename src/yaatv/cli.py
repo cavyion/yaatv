@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -128,21 +129,41 @@ def require_file(path: Path, label: str) -> Path:
 
 
 def find_ffmpeg() -> str:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise YaatvError(
-            "FFmpeg was not found on PATH. Install it from https://ffmpeg.org/download.html"
-        )
-    return ffmpeg
+    return find_external_tool("ffmpeg", "FFmpeg")
 
 
 def find_ffprobe() -> str:
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        raise YaatvError(
-            "FFprobe was not found on PATH. Install FFmpeg from https://ffmpeg.org/download.html"
-        )
-    return ffprobe
+    return find_external_tool("ffprobe", "FFprobe")
+
+
+def find_external_tool(name: str, label: str) -> str:
+    for candidate in bundled_tool_paths(name):
+        if candidate.is_file():
+            return str(candidate)
+
+    tool = shutil.which(name)
+    if tool:
+        return tool
+
+    raise YaatvError(
+        f"{label} was not found. Use a yaatv release binary with bundled FFmpeg, "
+        "or install FFmpeg from https://ffmpeg.org/download.html and make sure "
+        f"{name} is on PATH."
+    )
+
+
+def bundled_tool_paths(name: str) -> tuple[Path, ...]:
+    executable = f"{name}.exe" if os.name == "nt" else name
+    paths: list[Path] = []
+
+    pyinstaller_dir = getattr(sys, "_MEIPASS", None)
+    if pyinstaller_dir:
+        paths.append(Path(pyinstaller_dir) / "bin" / executable)
+
+    if getattr(sys, "frozen", False):
+        paths.append(Path(sys.executable).resolve().parent / "bin" / executable)
+
+    return tuple(paths)
 
 
 def validate_image(path: Path) -> tuple[int, int]:
@@ -450,7 +471,8 @@ def run_ffmpeg(command: Sequence[str]) -> int:
         completed = subprocess.run(command, check=False)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFmpeg was not found on PATH. Install it from https://ffmpeg.org/download.html"
+            "FFmpeg was not found. Use a yaatv release binary with bundled FFmpeg, "
+            "or install it from https://ffmpeg.org/download.html"
         ) from exc
     return completed.returncode
 
@@ -469,7 +491,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         completed = subprocess.run(command, check=False, capture_output=True, text=True)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFprobe was not found on PATH. Install FFmpeg from https://ffmpeg.org/download.html"
+            "FFprobe was not found. Use a yaatv release binary with bundled FFmpeg, "
+            "or install FFmpeg from https://ffmpeg.org/download.html"
         ) from exc
 
     if completed.returncode != 0:

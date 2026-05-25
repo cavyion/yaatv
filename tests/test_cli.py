@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 from io import StringIO
 
@@ -23,6 +25,10 @@ from yaatv.cli import (
     validate_image,
     verify_output_stats,
 )
+
+
+def _executable_name(name: str) -> str:
+    return f"{name}.exe" if os.name == "nt" else name
 
 
 def test_transcode_command_uses_required_youtube_settings() -> None:
@@ -181,6 +187,34 @@ def test_find_ffprobe_reports_download_url(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(YaatvError, match="https://ffmpeg.org/download.html"):
         find_ffprobe()
+
+
+def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundled = tmp_path / "bin" / _executable_name("ffmpeg")
+    bundled.parent.mkdir()
+    bundled.write_bytes(b"")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
+
+    assert find_ffmpeg() == str(bundled)
+
+
+def test_find_ffprobe_uses_adjacent_bin_for_frozen_onedir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundled = tmp_path / "bin" / _executable_name("ffprobe")
+    bundled.parent.mkdir()
+    bundled.write_bytes(b"")
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / _executable_name("yaatv")))
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    assert find_ffprobe() == str(bundled)
 
 
 def test_unreadable_audio_reports_user_facing_error(tmp_path: Path) -> None:

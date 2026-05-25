@@ -11,20 +11,23 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.asset_name }}
+    name: Build ${{ matrix.package_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            asset_name: yaatv-windows-x64
+            package_name: yaatv-windows-x64
+            executable_name: yaatv
             extension: .exe
           - os: ubuntu-latest
-            asset_name: yaatv-linux-x64
+            package_name: yaatv-linux-x64
+            executable_name: yaatv-linux
             extension: ""
           - os: macos-15-intel
-            asset_name: yaatv-macos-x64
+            package_name: yaatv-macos-x64
+            executable_name: yaatv-macos
             extension: ""
 
     steps:
@@ -49,24 +52,135 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Download FFmpeg binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor/bin
+
+          case "$RUNNER_OS" in
+            Windows)
+              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+              curl -L \
+                "$ffmpeg_binary_source" \
+                -o ffmpeg.zip
+              python -m zipfile -e ffmpeg.zip ffmpeg-dist
+              cp ffmpeg-dist/*/bin/ffmpeg.exe vendor/bin/
+              cp ffmpeg-dist/*/bin/ffprobe.exe vendor/bin/
+              ;;
+            Linux)
+              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+              curl -L \
+                "$ffmpeg_binary_source" \
+                -o ffmpeg.tar.xz
+              mkdir ffmpeg-dist
+              tar -xf ffmpeg.tar.xz -C ffmpeg-dist --strip-components=1
+              cp ffmpeg-dist/bin/ffmpeg vendor/bin/
+              cp ffmpeg-dist/bin/ffprobe vendor/bin/
+              chmod +x vendor/bin/ffmpeg vendor/bin/ffprobe
+              ;;
+            macOS)
+              ffmpeg_binary_source="https://evermeet.cx/ffmpeg/"
+              curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg.zip
+              curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
+              python -m zipfile -e ffmpeg.zip ffmpeg-dist
+              python -m zipfile -e ffprobe.zip ffprobe-dist
+              cp ffmpeg-dist/ffmpeg vendor/bin/
+              cp ffprobe-dist/ffprobe vendor/bin/
+              chmod +x vendor/bin/ffmpeg vendor/bin/ffprobe
+              ;;
+            *)
+              echo "Unsupported runner OS: $RUNNER_OS" >&2
+              exit 1
+              ;;
+          esac
+
+          suffix=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            suffix=".exe"
+          fi
+          "vendor/bin/ffmpeg${suffix}" -version
+          "vendor/bin/ffprobe${suffix}" -version
+          {
+            echo "yaatv bundles FFmpeg and FFprobe downloaded during the release workflow."
+            echo
+            echo "Runner OS: $RUNNER_OS"
+            echo "Upstream binary source: $ffmpeg_binary_source"
+            echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
+            echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
+            echo
+            echo "Downloaded archive checksums:"
+            for archive in ffmpeg.zip ffprobe.zip ffmpeg.tar.xz; do
+              if [[ -f "$archive" ]]; then
+                sha256sum "$archive"
+              fi
+            done
+            echo
+            echo "ffmpeg -version:"
+            "vendor/bin/ffmpeg${suffix}" -version
+            echo
+            echo "ffprobe -version:"
+            "vendor/bin/ffprobe${suffix}" -version
+          } > FFMPEG_BUILD_INFO.txt
+
       - name: Build executable
         shell: bash
         run: |
           python -c "from pathlib import Path; Path('yaatv_launcher.py').write_text('from yaatv.cli import main\nraise SystemExit(main())\n', encoding='utf-8')"
-          python -m PyInstaller --onefile --name "${{ matrix.asset_name }}" yaatv_launcher.py
+          suffix=""
+          separator=":"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            suffix=".exe"
+            separator=";"
+          fi
+          python -m PyInstaller \
+            --onefile \
+            --name "${{ matrix.executable_name }}" \
+            --add-binary "vendor/bin/ffmpeg${suffix}${separator}bin" \
+            --add-binary "vendor/bin/ffprobe${suffix}${separator}bin" \
+            --add-data "THIRD_PARTY_NOTICES.md${separator}." \
+            --add-data "FFMPEG_BUILD_INFO.txt${separator}." \
+            yaatv_launcher.py
 
       - name: Smoke test executable
         shell: bash
         run: |
-          executable="dist/${{ matrix.asset_name }}${{ matrix.extension }}"
+          executable="dist/${{ matrix.executable_name }}${{ matrix.extension }}"
           chmod +x "$executable"
           "$executable" --version
+          "$executable" \
+            --audio docs/docs-assets/yaatv-sample.wav \
+            --image docs/docs-assets/yaatv-sample.jpg \
+            --output smoke-output.mp4 \
+            --resolution 1080p \
+            --no-warn
 
-      - name: Upload executable artifact
+      - name: Package release ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="package/${{ matrix.package_name }}"
+          executable="dist/${{ matrix.executable_name }}${{ matrix.extension }}"
+          mkdir -p "$package_dir" release-assets
+          cp "$executable" "$package_dir/"
+          cp LICENSE THIRD_PARTY_NOTICES.md FFMPEG_BUILD_INFO.txt "$package_dir/"
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path("package") / "${{ matrix.package_name }}"
+          output = Path("release-assets") / "${{ matrix.package_name }}.zip"
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for path in sorted(root.iterdir()):
+                  if path.is_file():
+                      archive.write(path, path.name)
+          PY
+
+      - name: Upload release package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.asset_name }}${{ matrix.extension }}
+          name: ${{ matrix.package_name }}
+          path: release-assets/${{ matrix.package_name }}.zip
           if-no-files-found: error
 
   release:

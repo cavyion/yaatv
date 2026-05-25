@@ -10,58 +10,49 @@ Give it a track, give it artwork, get a video file back.
 
 Website and docs: <https://yaatv.org>
 
-## Requirements
-
-yaatv uses FFmpeg and FFprobe for encoding and verification. They are not bundled, so install FFmpeg first and make sure both commands work:
-
-```sh
-ffmpeg -version
-ffprobe -version
-```
-
-Download FFmpeg from <https://ffmpeg.org/download.html>.
-
 ## Download
 
 Download the build for your system from the latest release:
 
 <https://github.com/cavyion/yaatv/releases/latest>
 
+Release ZIPs bundle FFmpeg and FFprobe. Download one ZIP for your OS, extract it, and run the executable inside; no separate FFmpeg install is needed.
+
 Use the asset that matches your OS:
 
-- Windows x64: `yaatv-windows-x64.exe`
-- Linux x64: `yaatv-linux-x64`
-- macOS x64: `yaatv-macos-x64`
+- Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe`
+- Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux`
+- macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos`
 
 GitHub also adds source snapshots to every release as "Source code (zip)" and "Source code (tar.gz)".
 
 On Windows, run the executable from PowerShell:
 
 ```powershell
-.\yaatv-windows-x64.exe --version
-.\yaatv-windows-x64.exe -a track.flac -i cover.jpg -o output.mp4
+.\yaatv.exe --version
+.\yaatv.exe -a track.flac -i cover.jpg -o output.mp4
 ```
 
 On Linux:
 
 ```sh
-chmod +x ./yaatv-linux-x64
-./yaatv-linux-x64 --version
-./yaatv-linux-x64 -a track.flac -i cover.jpg -o output.mp4
+chmod +x ./yaatv-linux
+./yaatv-linux --version
+./yaatv-linux -a track.flac -i cover.jpg -o output.mp4
 ```
 
 On macOS:
 
 ```sh
-chmod +x ./yaatv-macos-x64
-./yaatv-macos-x64 --version
-./yaatv-macos-x64 -a track.flac -i cover.jpg -o output.mp4
+chmod +x ./yaatv-macos
+./yaatv-macos --version
+./yaatv-macos -a track.flac -i cover.jpg -o output.mp4
 ```
 
 The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta installed. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
 
 ```sh
-xattr -d com.apple.quarantine ./yaatv-macos-x64
+xattr -d com.apple.quarantine ./yaatv-macos
 ```
 
 ## Install from Python
@@ -74,6 +65,15 @@ yaatv --version
 ```
 
 Python 3.10 or newer is required.
+
+Python installs do not bundle FFmpeg. Install FFmpeg separately and make sure both commands work:
+
+```sh
+ffmpeg -version
+ffprobe -version
+```
+
+Download FFmpeg from <https://ffmpeg.org/download.html>.
 
 ## Usage
 
@@ -110,6 +110,10 @@ Flags:
 Source audio below 256kbps and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
 
 `--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
+
+## Third-party binaries
+
+The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; bundled runtime and media components keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
 
 ## Development
 

@@ -1,3 +1,5 @@
+include THIRD_PARTY_NOTICES.md
+
 prune assets
 
 global-exclude __pycache__
