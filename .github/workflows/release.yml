@@ -23,16 +23,16 @@ jobs:
           - os: ubuntu-latest
             asset_name: yaatv-linux-x64
             extension: ""
-          - os: macos-13
+          - os: macos-15-intel
             asset_name: yaatv-macos-x64
             extension: ""
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -63,7 +63,7 @@ jobs:
           "$executable" --version
 
       - name: Upload executable artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset_name }}
           path: dist/${{ matrix.asset_name }}${{ matrix.extension }}
@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
