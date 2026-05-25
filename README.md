@@ -16,7 +16,7 @@ Download the build for your system from the latest release:
 
 <https://github.com/cavyion/yaatv/releases/latest>
 
-Release ZIPs bundle FFmpeg and FFprobe. Download one ZIP for your OS, extract it, and run the executable inside; no separate FFmpeg install is needed.
+Windows release ZIPs include `yaatv.exe` without FFmpeg. On Windows, run `.\yaatv.exe --install-ffmpeg` once to install FFmpeg and FFprobe into `%LOCALAPPDATA%\yaatv\bin`; yaatv checks that location before PATH and does not modify system PATH. Linux and macOS release ZIPs still include FFmpeg and FFprobe.
 
 Use the asset that matches your OS:
 
@@ -30,8 +30,11 @@ On Windows, run the executable from PowerShell:
 
 ```powershell
 .\yaatv.exe --version
+.\yaatv.exe --install-ffmpeg
 .\yaatv.exe -a track.flac -i cover.jpg -o output.mp4
 ```
+
+If FFmpeg is missing during an interactive Windows run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `.\yaatv.exe --install-ffmpeg`.
 
 On Linux:
 
@@ -66,7 +69,7 @@ yaatv --version
 
 Python 3.10 or newer is required.
 
-Python installs do not bundle FFmpeg. Install FFmpeg separately and make sure both commands work:
+Python installs do not bundle FFmpeg. On Windows, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. On other systems, install FFmpeg separately and make sure both commands work:
 
 ```sh
 ffmpeg -version
@@ -97,6 +100,7 @@ Flags:
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
+- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed Windows bin directory
 
 ## Output
 
@@ -113,7 +117,7 @@ Source audio below 256kbps and cover images smaller than the target resolution p
 
 ## Third-party binaries
 
-The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; bundled runtime and media components keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
+The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
 
 ## Development
 
@@ -138,7 +142,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.1.0
+git tag v0.2.0
 git push origin main --tags
 ```
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -8,9 +9,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence, TextIO
+from typing import Callable, Iterable, Sequence, TextIO
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
@@ -31,6 +35,14 @@ LOW_BITRATE_WARNING = 256_000
 TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
+WINDOWS_FFMPEG_ARCHIVE_URL = (
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
+    "autobuild-2026-05-25-14-02/"
+    "ffmpeg-n7.1.4-6-g181cfa1008-win64-gpl-7.1.zip"
+)
+WINDOWS_FFMPEG_ARCHIVE_SHA256 = "a995684af075645484534ba84bc6a60320735395e1640d816f43b8d4a5b5775a"
+WINDOWS_FFMPEG_TOOLS = ("ffmpeg.exe", "ffprobe.exe")
 
 
 class YaatvError(Exception):
@@ -86,12 +98,14 @@ def format_seconds(seconds: float) -> str:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    installing_ffmpeg = "--install-ffmpeg" in argv_list
     parser = argparse.ArgumentParser(
         prog="yaatv",
         description="Combine an audio file and cover image into a YouTube-optimized MP4.",
     )
-    parser.add_argument("-a", "--audio", required=True, type=Path, help="Path to audio file")
-    parser.add_argument("-i", "--image", required=True, type=Path, help="Path to cover image")
+    parser.add_argument("-a", "--audio", required=not installing_ffmpeg, type=Path, help="Path to audio file")
+    parser.add_argument("-i", "--image", required=not installing_ffmpeg, type=Path, help="Path to cover image")
     parser.add_argument(
         "-o",
         "--output",
@@ -115,8 +129,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Suppress low source quality warnings",
     )
+    parser.add_argument(
+        "--install-ffmpeg",
+        action="store_true",
+        help="Install FFmpeg and FFprobe into yaatv's Windows app-data bin directory",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    return parser.parse_args(argv)
+    return parser.parse_args(argv_list)
 
 
 def require_file(path: Path, label: str) -> Path:
@@ -128,16 +147,36 @@ def require_file(path: Path, label: str) -> Path:
     return resolved
 
 
-def find_ffmpeg() -> str:
-    return find_external_tool("ffmpeg", "FFmpeg")
+def find_ffmpeg(
+    *,
+    app_bin_dir: Path | None = None,
+    packaged_paths: Sequence[Path] | None = None,
+) -> str:
+    return find_external_tool("ffmpeg", "FFmpeg", app_bin_dir=app_bin_dir, packaged_paths=packaged_paths)
 
 
-def find_ffprobe() -> str:
-    return find_external_tool("ffprobe", "FFprobe")
+def find_ffprobe(
+    *,
+    app_bin_dir: Path | None = None,
+    packaged_paths: Sequence[Path] | None = None,
+) -> str:
+    return find_external_tool("ffprobe", "FFprobe", app_bin_dir=app_bin_dir, packaged_paths=packaged_paths)
 
 
-def find_external_tool(name: str, label: str) -> str:
-    for candidate in bundled_tool_paths(name):
+def find_external_tool(
+    name: str,
+    label: str,
+    *,
+    app_bin_dir: Path | None = None,
+    packaged_paths: Sequence[Path] | None = None,
+) -> str:
+    app_paths = app_managed_tool_paths(name, app_bin_dir=app_bin_dir)
+    for candidate in app_paths:
+        if candidate.is_file():
+            return str(candidate)
+
+    package_paths = bundled_tool_paths(name) if packaged_paths is None else tuple(packaged_paths)
+    for candidate in package_paths:
         if candidate.is_file():
             return str(candidate)
 
@@ -145,11 +184,39 @@ def find_external_tool(name: str, label: str) -> str:
     if tool:
         return tool
 
-    raise YaatvError(
-        f"{label} was not found. Use a yaatv release binary with bundled FFmpeg, "
-        "or install FFmpeg from https://ffmpeg.org/download.html and make sure "
+    app_install_supported = app_bin_dir is not None or os.name == "nt"
+    raise YaatvError(missing_tool_message(name, label, app_install_supported=app_install_supported))
+
+
+def missing_tool_message(name: str, label: str, *, app_install_supported: bool) -> str:
+    if app_install_supported:
+        return (
+            f"{label} was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
+            f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE} and make sure {name} is on PATH."
+        )
+
+    return (
+        f"{label} was not found. Install FFmpeg from {FFMPEG_DOWNLOAD_PAGE} and make sure "
         f"{name} is on PATH."
     )
+
+
+def app_managed_tool_paths(name: str, *, app_bin_dir: Path | None = None) -> tuple[Path, ...]:
+    if app_bin_dir is None:
+        if os.name != "nt":
+            return ()
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            return ()
+        app_bin_dir = Path(local_app_data) / "yaatv" / "bin"
+    return (app_bin_dir / f"{name}.exe",)
+
+
+def windows_ffmpeg_bin_dir() -> Path:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        raise YaatvError("%LOCALAPPDATA% is not set; cannot choose yaatv's FFmpeg install directory.")
+    return Path(local_app_data) / "yaatv" / "bin"
 
 
 def bundled_tool_paths(name: str) -> tuple[Path, ...]:
@@ -164,6 +231,125 @@ def bundled_tool_paths(name: str) -> tuple[Path, ...]:
         paths.append(Path(sys.executable).resolve().parent / "bin" / executable)
 
     return tuple(paths)
+
+
+def resolve_ffmpeg_tools(
+    stdin: TextIO,
+    stderr: TextIO,
+    *,
+    app_bin_dir: Path | None = None,
+    packaged_paths: Sequence[Path] | None = None,
+    install_supported: bool | None = None,
+    installer: Callable[[], Path] | None = None,
+) -> tuple[str, str]:
+    try:
+        return (
+            find_ffmpeg(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
+            find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
+        )
+    except YaatvError as exc:
+        can_install = (os.name == "nt") if install_supported is None else install_supported
+        if not can_install or not stdin.isatty():
+            raise
+
+        print(str(exc), file=stderr)
+        print("Install FFmpeg for yaatv now? [y/N] ", end="", file=stderr, flush=True)
+        answer = stdin.readline().strip().lower()
+        if answer not in {"y", "yes"}:
+            raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.")
+
+        if installer is None:
+            install_windows_ffmpeg(stderr=stderr)
+        else:
+            installer()
+
+        return (
+            find_ffmpeg(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
+            find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
+        )
+
+
+def install_windows_ffmpeg(
+    *,
+    install_dir: Path | None = None,
+    archive_url: str = WINDOWS_FFMPEG_ARCHIVE_URL,
+    expected_sha256: str = WINDOWS_FFMPEG_ARCHIVE_SHA256,
+    stderr: TextIO = sys.stderr,
+) -> Path:
+    if install_dir is None:
+        if os.name != "nt":
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows.")
+        install_dir = windows_ffmpeg_bin_dir()
+
+    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
+        temp_dir = Path(temp_name)
+        archive_path = temp_dir / "ffmpeg.zip"
+        staging_dir = temp_dir / "bin"
+
+        print(f"Downloading FFmpeg from {archive_url}", file=stderr)
+        try:
+            _download_url(archive_url, archive_path)
+        except OSError as exc:
+            raise YaatvError(f"Could not download FFmpeg: {exc}") from exc
+
+        _verify_sha256(archive_path, expected_sha256)
+        _extract_windows_ffmpeg_tools(archive_path, staging_dir)
+
+        install_dir.mkdir(parents=True, exist_ok=True)
+        for tool_name in WINDOWS_FFMPEG_TOOLS:
+            (staging_dir / tool_name).replace(install_dir / tool_name)
+
+    print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
+    return install_dir
+
+
+def _download_url(url: str, destination: Path) -> None:
+    with urllib.request.urlopen(url) as response:
+        with destination.open("wb") as output:
+            shutil.copyfileobj(response, output)
+
+
+def _verify_sha256(path: Path, expected_sha256: str) -> None:
+    digest = hashlib.sha256()
+    with path.open("rb") as input_file:
+        for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256.lower() != expected_sha256.lower():
+        raise YaatvError(
+            "FFmpeg archive checksum mismatch: "
+            f"expected {expected_sha256.lower()}, got {actual_sha256.lower()}"
+        )
+
+
+def _extract_windows_ffmpeg_tools(archive_path: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            for tool_name in WINDOWS_FFMPEG_TOOLS:
+                member = _find_ffmpeg_zip_member(archive, tool_name)
+                with archive.open(member) as source:
+                    with (destination / tool_name).open("wb") as output:
+                        shutil.copyfileobj(source, output)
+    except zipfile.BadZipFile as exc:
+        raise YaatvError("FFmpeg archive is not a valid ZIP file.") from exc
+
+
+def _find_ffmpeg_zip_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.ZipInfo:
+    normalized_tool = tool_name.lower()
+    candidates = []
+    for member in archive.infolist():
+        normalized_name = member.filename.replace("\\", "/").lower()
+        if member.is_dir():
+            continue
+        if normalized_name != f"bin/{normalized_tool}" and not normalized_name.endswith(f"/bin/{normalized_tool}"):
+            continue
+        candidates.append(member)
+
+    if not candidates:
+        raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
+    return sorted(candidates, key=lambda member: member.filename)[0]
 
 
 def validate_image(path: Path) -> tuple[int, int]:
@@ -471,8 +657,8 @@ def run_ffmpeg(command: Sequence[str]) -> int:
         completed = subprocess.run(command, check=False)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFmpeg was not found. Use a yaatv release binary with bundled FFmpeg, "
-            "or install it from https://ffmpeg.org/download.html"
+            "FFmpeg was not found. Run yaatv --install-ffmpeg on Windows, "
+            f"or install it from {FFMPEG_DOWNLOAD_PAGE}"
         ) from exc
     return completed.returncode
 
@@ -491,8 +677,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         completed = subprocess.run(command, check=False, capture_output=True, text=True)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFprobe was not found. Use a yaatv release binary with bundled FFmpeg, "
-            "or install FFmpeg from https://ffmpeg.org/download.html"
+            "FFprobe was not found. Run yaatv --install-ffmpeg on Windows, "
+            f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE}"
         ) from exc
 
     if completed.returncode != 0:
@@ -639,10 +825,13 @@ def _sample_rate_label(sample_rate: int | None) -> str:
 
 def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: TextIO = sys.stderr) -> int:
     args = parse_args(argv)
+    if args.install_ffmpeg:
+        install_windows_ffmpeg(stderr=stderr)
+        return 0
+
     audio_path = require_file(args.audio, "Audio file")
     image_path = require_file(args.image, "Cover image")
-    ffmpeg = find_ffmpeg()
-    ffprobe = find_ffprobe()
+    ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
     metadata = read_audio_metadata(audio_path)
     image_size = validate_image(image_path)
     target_size = RESOLUTIONS[args.resolution]

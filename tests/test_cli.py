@@ -1,11 +1,16 @@
+import hashlib
 import os
+import re
 import sys
-from pathlib import Path
+import zipfile
+from io import BytesIO
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from yaatv import __version__
 from yaatv.cli import (
     AudioMetadata,
     OutputStats,
@@ -14,13 +19,14 @@ from yaatv.cli import (
     choose_audio_plan,
     confirm_overwrite,
     default_output_path,
-    find_ffmpeg,
-    find_ffprobe,
+    find_external_tool,
     format_output_stats,
+    install_windows_ffmpeg,
     is_high_quality_aac,
     pad_seconds,
     quality_warnings,
     read_audio_metadata,
+    resolve_ffmpeg_tools,
     sanitize_filename,
     validate_image,
     verify_output_stats,
@@ -29,6 +35,37 @@ from yaatv.cli import (
 
 def _executable_name(name: str) -> str:
     return f"{name}.exe" if os.name == "nt" else name
+
+
+class _TtyInput(StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def _ffmpeg_zip_bytes() -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("ffmpeg-build/bin/ffmpeg.exe", b"ffmpeg")
+        archive.writestr("ffmpeg-build/bin/ffprobe.exe", b"ffprobe")
+        archive.writestr("ffmpeg-build/bin/ffplay.exe", b"ffplay")
+        archive.writestr("ffmpeg-build/doc/readme.txt", b"extra")
+    return buffer.getvalue()
+
+
+def _pyproject_version() -> str:
+    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    if sys.version_info >= (3, 11):
+        import tomllib
+
+        return str(tomllib.loads(text)["project"]["version"])
+
+    match = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"\s*$', text)
+    assert match is not None
+    return match.group(1)
+
+
+def test_runtime_version_matches_project_metadata() -> None:
+    assert __version__ == _pyproject_version()
 
 
 def test_transcode_command_uses_required_youtube_settings() -> None:
@@ -175,18 +212,133 @@ def test_sanitize_filename_has_fallback() -> None:
     assert sanitize_filename(' <>:"/\\|?* ') == "_________"
 
 
-def test_find_ffmpeg_reports_download_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_ffmpeg_uses_app_cache_before_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "app" / "bin"
+    app_bin.mkdir(parents=True)
+    cached = app_bin / "ffmpeg.exe"
+    cached.write_bytes(b"")
+    path_tool = tmp_path / "path" / "ffmpeg.exe"
+    path_tool.parent.mkdir()
+    path_tool.write_bytes(b"")
+    monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
+
+    assert find_external_tool("ffmpeg", "FFmpeg", app_bin_dir=app_bin, packaged_paths=()) == str(cached)
+
+
+def test_find_ffmpeg_missing_reports_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr("shutil.which", lambda _: None)
 
-    with pytest.raises(YaatvError, match="https://ffmpeg.org/download.html"):
-        find_ffmpeg()
+    with pytest.raises(YaatvError, match="yaatv --install-ffmpeg"):
+        find_external_tool("ffmpeg", "FFmpeg", app_bin_dir=tmp_path / "empty", packaged_paths=())
 
 
-def test_find_ffprobe_reports_download_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_find_ffprobe_missing_reports_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr("shutil.which", lambda _: None)
 
-    with pytest.raises(YaatvError, match="https://ffmpeg.org/download.html"):
-        find_ffprobe()
+    with pytest.raises(YaatvError, match="yaatv --install-ffmpeg"):
+        find_external_tool("ffprobe", "FFprobe", app_bin_dir=tmp_path / "empty", packaged_paths=())
+
+
+def test_resolve_ffmpeg_tools_noninteractive_does_not_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    installed = False
+
+    def install() -> Path:
+        nonlocal installed
+        installed = True
+        return tmp_path
+
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    with pytest.raises(YaatvError, match="yaatv --install-ffmpeg"):
+        resolve_ffmpeg_tools(
+            stdin=StringIO(),
+            stderr=StringIO(),
+            app_bin_dir=tmp_path / "empty",
+            packaged_paths=(),
+            install_supported=True,
+            installer=install,
+        )
+
+    assert not installed
+
+
+def test_resolve_ffmpeg_tools_interactive_installs_when_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "app" / "bin"
+
+    def install() -> Path:
+        app_bin.mkdir(parents=True)
+        (app_bin / "ffmpeg.exe").write_bytes(b"")
+        (app_bin / "ffprobe.exe").write_bytes(b"")
+        return app_bin
+
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    assert resolve_ffmpeg_tools(
+        stdin=_TtyInput("y\n"),
+        stderr=StringIO(),
+        app_bin_dir=app_bin,
+        packaged_paths=(),
+        install_supported=True,
+        installer=install,
+    ) == (str(app_bin / "ffmpeg.exe"), str(app_bin / "ffprobe.exe"))
+
+
+def test_install_ffmpeg_rejects_checksum_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(b"not the archive")
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+
+    with pytest.raises(YaatvError, match="checksum mismatch"):
+        install_windows_ffmpeg(
+            install_dir=tmp_path / "yaatv" / "bin",
+            expected_sha256="0" * 64,
+            stderr=StringIO(),
+        )
+
+    assert not (tmp_path / "yaatv" / "bin").exists()
+
+
+def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = _ffmpeg_zip_bytes()
+    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+
+    assert install_windows_ffmpeg(
+        install_dir=install_dir,
+        expected_sha256=expected_sha256,
+        stderr=StringIO(),
+    ) == install_dir
+
+    assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
+    assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
+    assert not (install_dir / "ffplay.exe").exists()
 
 
 def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(
@@ -199,7 +351,7 @@ def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
 
-    assert find_ffmpeg() == str(bundled)
+    assert find_external_tool("ffmpeg", "FFmpeg", app_bin_dir=tmp_path / "empty") == str(bundled)
 
 
 def test_find_ffprobe_uses_adjacent_bin_for_frozen_onedir(
@@ -214,7 +366,7 @@ def test_find_ffprobe_uses_adjacent_bin_for_frozen_onedir(
     monkeypatch.setattr(sys, "executable", str(tmp_path / _executable_name("yaatv")))
     monkeypatch.setattr("shutil.which", lambda _: None)
 
-    assert find_ffprobe() == str(bundled)
+    assert find_external_tool("ffprobe", "FFprobe", app_bin_dir=tmp_path / "empty") == str(bundled)
 
 
 def test_unreadable_audio_reports_user_facing_error(tmp_path: Path) -> None:

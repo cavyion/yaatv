@@ -52,7 +52,7 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
-      - name: Download FFmpeg binaries
+      - name: Prepare FFmpeg release assets
         shell: bash
         run: |
           set -euo pipefail
@@ -60,13 +60,30 @@ jobs:
 
           case "$RUNNER_OS" in
             Windows)
-              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-              curl -L \
-                "$ffmpeg_binary_source" \
-                -o ffmpeg.zip
-              python -m zipfile -e ffmpeg.zip ffmpeg-dist
-              cp ffmpeg-dist/*/bin/ffmpeg.exe vendor/bin/
-              cp ffmpeg-dist/*/bin/ffprobe.exe vendor/bin/
+              ffmpeg_binary_source="$(python - <<'PY'
+          from yaatv.cli import WINDOWS_FFMPEG_ARCHIVE_URL
+
+          print(WINDOWS_FFMPEG_ARCHIVE_URL)
+          PY
+          )"
+              ffmpeg_binary_checksum="$(python - <<'PY'
+          from yaatv.cli import WINDOWS_FFMPEG_ARCHIVE_SHA256
+
+          print(WINDOWS_FFMPEG_ARCHIVE_SHA256)
+          PY
+          )"
+              {
+                echo "The Windows yaatv executable does not bundle FFmpeg or FFprobe."
+                echo "Run yaatv --install-ffmpeg to install the app-managed FFmpeg tools."
+                echo
+                echo "Installer archive source: $ffmpeg_binary_source"
+                echo "Installer archive sha256: $ffmpeg_binary_checksum"
+                echo "Install path: %LOCALAPPDATA%\\yaatv\\bin"
+                echo "Extracted files: ffmpeg.exe, ffprobe.exe"
+                echo
+                echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
+                echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
+              } > FFMPEG_BUILD_INFO.txt
               ;;
             Linux)
               ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
@@ -95,33 +112,32 @@ jobs:
               ;;
           esac
 
-          suffix=""
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            suffix=".exe"
-          fi
-          "vendor/bin/ffmpeg${suffix}" -version
-          "vendor/bin/ffprobe${suffix}" -version
-          {
-            echo "yaatv bundles FFmpeg and FFprobe downloaded during the release workflow."
-            echo
-            echo "Runner OS: $RUNNER_OS"
-            echo "Upstream binary source: $ffmpeg_binary_source"
-            echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
-            echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
-            echo
-            echo "Downloaded archive checksums:"
-            for archive in ffmpeg.zip ffprobe.zip ffmpeg.tar.xz; do
-              if [[ -f "$archive" ]]; then
-                sha256sum "$archive"
-              fi
-            done
-            echo
-            echo "ffmpeg -version:"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            suffix=""
             "vendor/bin/ffmpeg${suffix}" -version
-            echo
-            echo "ffprobe -version:"
             "vendor/bin/ffprobe${suffix}" -version
-          } > FFMPEG_BUILD_INFO.txt
+            {
+              echo "yaatv bundles FFmpeg and FFprobe downloaded during the release workflow."
+              echo
+              echo "Runner OS: $RUNNER_OS"
+              echo "Upstream binary source: $ffmpeg_binary_source"
+              echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
+              echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
+              echo
+              echo "Downloaded archive checksums:"
+              for archive in ffmpeg.zip ffprobe.zip ffmpeg.tar.xz; do
+                if [[ -f "$archive" ]]; then
+                  sha256sum "$archive"
+                fi
+              done
+              echo
+              echo "ffmpeg -version:"
+              "vendor/bin/ffmpeg${suffix}" -version
+              echo
+              echo "ffprobe -version:"
+              "vendor/bin/ffprobe${suffix}" -version
+            } > FFMPEG_BUILD_INFO.txt
+          fi
 
       - name: Build executable
         shell: bash
@@ -133,23 +149,54 @@ jobs:
             suffix=".exe"
             separator=";"
           fi
-          python -m PyInstaller \
-            --onefile \
-            --name "${{ matrix.executable_name }}" \
-            --add-binary "vendor/bin/ffmpeg${suffix}${separator}bin" \
-            --add-binary "vendor/bin/ffprobe${suffix}${separator}bin" \
-            --add-data "THIRD_PARTY_NOTICES.md${separator}." \
-            --add-data "FFMPEG_BUILD_INFO.txt${separator}." \
-            yaatv_launcher.py
+          pyinstaller_args=(
+            --onefile
+            --name "${{ matrix.executable_name }}"
+            --exclude-module numpy
+            --add-data "THIRD_PARTY_NOTICES.md${separator}."
+            --add-data "FFMPEG_BUILD_INFO.txt${separator}."
+          )
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            pyinstaller_args+=(
+              --add-binary "vendor/bin/ffmpeg${suffix}${separator}bin"
+              --add-binary "vendor/bin/ffprobe${suffix}${separator}bin"
+            )
+          fi
+          python -m PyInstaller "${pyinstaller_args[@]}" yaatv_launcher.py
 
       - name: Smoke test executable
         shell: bash
         run: |
           executable="dist/${{ matrix.executable_name }}${{ matrix.extension }}"
+          python - <<'PY'
+          import math
+          import struct
+          import wave
+
+          duration = 3
+          sample_rate = 48000
+          frame_count = duration * sample_rate
+          with wave.open("smoke-audio.wav", "wb") as audio:
+              audio.setnchannels(2)
+              audio.setsampwidth(2)
+              audio.setframerate(sample_rate)
+              frames = bytearray()
+              for index in range(frame_count):
+                  sample = int(32767 * 0.2 * math.sin(2 * math.pi * 440 * index / sample_rate))
+                  packed = struct.pack("<h", sample)
+                  frames.extend(packed)
+                  frames.extend(packed)
+              audio.writeframes(frames)
+          PY
           chmod +x "$executable"
           "$executable" --version
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            mkdir -p smoke-localappdata
+            export LOCALAPPDATA="$(cygpath -w "$PWD/smoke-localappdata")"
+            "$executable" --install-ffmpeg
+          fi
           "$executable" \
-            --audio docs/docs-assets/yaatv-sample.wav \
+            --audio smoke-audio.wav \
             --image docs/docs-assets/yaatv-sample.jpg \
             --output smoke-output.mp4 \
             --resolution 1080p \
