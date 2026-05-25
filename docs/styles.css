@@ -216,6 +216,18 @@ li code {
   font-size: 0.92rem;
 }
 
+.source-audio {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--subtle);
+  font-size: 0.92rem;
+}
+
+.source-audio audio {
+  width: 100%;
+}
+
 .sample-command {
   display: block;
   overflow-x: auto;
