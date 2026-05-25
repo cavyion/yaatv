@@ -14,22 +14,6 @@ ffprobe -version
 ```
 https://ffmpeg.org/download.html
 
-## Install
-
-Download the binary for your platform from GitHub Releases:
-
-- Windows: `yaatv-windows-x64.exe`
-- macOS: `yaatv-macos-x64`
-- Linux: `yaatv-linux-x64`
-
-On macOS and Linux, make the binary executable first:
-
-```sh
-chmod +x yaatv-macos-x64
-```
-
-Run the downloaded file directly from your terminal.
-
 ## Usage
 
 ```sh
