@@ -248,6 +248,29 @@ td code {
   align-items: start;
 }
 
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+}
+
+.file-item {
+  padding-top: 14px;
+  border-top: 2px solid var(--accent);
+}
+
+.file-item h3 {
+  margin: 0 0 8px;
+  font-size: 1.08rem;
+  line-height: 1.25;
+}
+
+.file-item p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -301,24 +324,12 @@ tbody tr:last-child td {
   gap: 12px;
   max-width: 880px;
   margin: 0;
-  padding: 0;
-  list-style: none;
+  padding-left: 20px;
 }
 
 .check-list li {
-  position: relative;
-  padding-left: 24px;
   color: var(--muted);
   line-height: 1.6;
-}
-
-.check-list li::before {
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-  content: ">";
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-weight: 700;
 }
 
 .source {
@@ -353,7 +364,8 @@ tbody tr:last-child td {
   }
 
   .hero,
-  .two-column {
+  .two-column,
+  .file-grid {
     grid-template-columns: 1fr;
   }
 

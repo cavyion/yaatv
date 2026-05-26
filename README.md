@@ -1,37 +1,43 @@
 # yaatv
 
-yaatv is made for producers who need to turn finished audio and cover art into a YouTube-ready MP4 without opening a video editor.
+yaatv turns audio and cover art into a YouTube-ready MP4 without opening a video editor.
+
+It is built for audio creators: producers, ASMRtists, podcasters, DJs, narrators, and anyone publishing audio with a static image.
+
+Works with common audio files like WAV, FLAC, MP3, M4A/AAC, OGG, and Opus, plus static cover images like JPG, PNG, and WebP. Animated images are not accepted.
 
 ```sh
-yaatv -a track.flac -i cover.jpg -o output.mp4 --resolution 1440p
+yaatv -a audio.flac -i cover.jpg -o upload.mp4
 ```
 
-Give it a track, give it artwork, get a video file back.
+Give it audio. Give it artwork. Get an MP4 you can upload.
 
 Website and docs: <https://yaatv.org>
 
 ## Download
 
-Download the build for your system from the latest release:
+Download the ZIP for your computer from the latest release:
 
 <https://github.com/cavyion/yaatv/releases/latest>
 
-Windows release ZIPs include `yaatv.exe` without FFmpeg. On Windows, run `.\yaatv.exe --install-ffmpeg` once to install FFmpeg and FFprobe into `%LOCALAPPDATA%\yaatv\bin`; yaatv checks that location before PATH and does not modify system PATH. Linux and macOS release ZIPs still include FFmpeg and FFprobe.
-
-Use the asset that matches your OS:
+Use one of these release assets:
 
 - Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe`
 - Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux`
 - macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos`
 
-GitHub also adds source snapshots to every release as "Source code (zip)" and "Source code (tar.gz)".
+You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files unless you specifically want the code.
+
+Windows release ZIPs include `yaatv.exe` without FFmpeg. On Windows, run `.\yaatv.exe --install-ffmpeg` once to install FFmpeg and FFprobe into `%LOCALAPPDATA%\yaatv\bin`; yaatv checks that location before PATH and does not modify system PATH. Linux and macOS release ZIPs include FFmpeg and FFprobe.
+
+## Run
 
 On Windows, run the executable from PowerShell:
 
 ```powershell
 .\yaatv.exe --version
 .\yaatv.exe --install-ffmpeg
-.\yaatv.exe -a track.flac -i cover.jpg -o output.mp4
+.\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
 
 If FFmpeg is missing during an interactive Windows run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `.\yaatv.exe --install-ffmpeg`.
@@ -41,7 +47,7 @@ On Linux:
 ```sh
 chmod +x ./yaatv-linux
 ./yaatv-linux --version
-./yaatv-linux -a track.flac -i cover.jpg -o output.mp4
+./yaatv-linux -a episode.wav -i cover.jpg -o output.mp4
 ```
 
 On macOS:
@@ -49,7 +55,7 @@ On macOS:
 ```sh
 chmod +x ./yaatv-macos
 ./yaatv-macos --version
-./yaatv-macos -a track.flac -i cover.jpg -o output.mp4
+./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
 ```
 
 The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta installed. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
@@ -58,7 +64,45 @@ The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta install
 xattr -d com.apple.quarantine ./yaatv-macos
 ```
 
-## Install from Python
+## Usage
+
+The smallest command uses the audio file name, or artist/title tags when available, for the output MP4:
+
+```sh
+yaatv -a audio.flac -i cover.jpg
+```
+
+Choose the output file and resolution:
+
+```sh
+yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
+```
+
+Flags:
+
+- `-a`, `--audio`: audio file, required
+- `-i`, `--image`: cover image, required
+- `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available
+- `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
+- `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
+- `--no-warn`: hide low source quality warnings
+- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed Windows bin directory
+
+## Output
+
+yaatv creates a normal MP4 with your cover image shown for the full length of the audio.
+
+- Audio is kept in an upload-friendly format. High-quality AAC can be copied directly when no padding is needed.
+- Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
+- Video is encoded for broad playback compatibility and YouTube uploads.
+- Completed files are checked after encoding and summarized before yaatv exits.
+- Existing output files require confirmation before overwrite.
+
+Low-quality source audio and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
+
+`--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
+
+## Python install (optional)
 
 If you prefer to run yaatv as a Python CLI, install it from this repository:
 
@@ -77,43 +121,6 @@ ffprobe -version
 ```
 
 Download FFmpeg from <https://ffmpeg.org/download.html>.
-
-## Usage
-
-The smallest command uses the source file name, or artist/title tags when available, for the output MP4:
-
-```sh
-yaatv -a track.flac -i cover.jpg
-```
-
-Choose an output path and resolution:
-
-```sh
-yaatv -a track.flac -i cover.jpg -o output.mp4 --resolution 1440p
-```
-
-Flags:
-
-- `-a`, `--audio`: audio file, required
-- `-i`, `--image`: cover image, required
-- `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available
-- `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
-- `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
-- `--no-warn`: hide low source quality warnings
-- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed Windows bin directory
-
-## Output
-
-- AAC at 48kHz and 320kbps or higher is copied without re-encoding.
-- Other audio is encoded as AAC-LC 384kbps at 48kHz.
-- Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
-- Video uses 1fps H.264, CRF 16, BT.709 color metadata, yuv420p, and `+faststart`.
-- Completed files are verified with FFprobe and summarized after encoding.
-- Existing output files require confirmation before overwrite.
-
-Source audio below 256kbps and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
-
-`--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
 
 ## Third-party binaries
 

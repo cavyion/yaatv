@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="yaatv is an open-source local CLI that combines audio and cover art into a YouTube-ready MP4."
+      content="yaatv turns audio and static cover art into a YouTube-ready MP4 for music, ASMR, podcasts, and other audio uploads."
     >
     <meta name="theme-color" content="#f6f8fb">
     <title>yaatv - Yet Another Audio To Video</title>
@@ -17,10 +17,10 @@
         <span>yaatv</span>
       </a>
       <nav class="site-nav" aria-label="Primary">
+        <a href="#files">Files</a>
         <a href="#download">Download</a>
         <a href="#usage">Usage</a>
         <a href="#output">Output</a>
-        <a href="#notices">Notices</a>
         <a href="https://github.com/cavyion/yaatv">GitHub</a>
       </nav>
     </header>
@@ -31,14 +31,14 @@
           <p class="project-label">Yet Another Audio To Video</p>
           <h1 id="hero-title">Audio and cover art to MP4.</h1>
           <p class="lead">
-            yaatv is a small local CLI for producers who need a YouTube upload file from a finished track and cover
-            image. No watermarks. No limits. No cloud.
+            Turn a song, ASMR session, podcast episode, mix, or voice note into an upload-ready video file. Pick an
+            audio file, pick a static cover image, and yaatv makes the MP4 locally.
           </p>
           <div class="actions" aria-label="Primary actions">
-            <a class="button button-primary" href="https://github.com/cavyion/yaatv/releases/latest">Download release</a>
-            <a class="button" href="#usage">Read usage</a>
+            <a class="button button-primary" href="https://github.com/cavyion/yaatv/releases/latest">Download yaatv</a>
+            <a class="button" href="#usage">See examples</a>
           </div>
-          <pre class="command"><code>yaatv -a track.flac -i cover.jpg -o output.mp4 --resolution 1440p</code></pre>
+          <pre class="command"><code>yaatv -a audio.flac -i cover.jpg -o output.mp4 --resolution 1440p</code></pre>
         </div>
 
         <figure class="demo">
@@ -46,17 +46,42 @@
             <source src="docs-assets/yaatv-sample.mp4" type="video/mp4">
           </video>
           <figcaption>
-            Sample MP4 output generated locally by yaatv.
+            A static-image MP4 generated locally by yaatv.
           </figcaption>
         </figure>
+      </section>
+
+      <section id="files" class="section" aria-labelledby="files-title">
+        <div class="section-header">
+          <h2 id="files-title">What files work?</h2>
+          <p>
+            Use one finished audio file and one still image. yaatv is built for normal audio uploads, not video editing
+            projects or animated artwork.
+          </p>
+        </div>
+
+        <div class="file-grid">
+          <div class="file-item">
+            <h3>Audio</h3>
+            <p>Common formats such as WAV, FLAC, MP3, M4A/AAC, OGG, and Opus.</p>
+          </div>
+          <div class="file-item">
+            <h3>Cover art</h3>
+            <p>Static images such as JPG, PNG, and WebP. Animated images are rejected.</p>
+          </div>
+          <div class="file-item">
+            <h3>Result</h3>
+            <p>An MP4 with the image visible for the full audio length, ready to upload to YouTube.</p>
+          </div>
+        </div>
       </section>
 
       <section id="download" class="section" aria-labelledby="download-title">
         <div class="section-header">
           <h2 id="download-title">Download</h2>
           <p>
-            Use the release ZIP that matches your system. Windows installs FFmpeg on request into yaatv's app-data
-            directory. Linux and macOS ZIPs include FFmpeg and FFprobe.
+            Download the ZIP that matches your computer. On GitHub, choose one of these release assets and ignore the
+            source code downloads unless you specifically want the code.
           </p>
         </div>
 
@@ -99,41 +124,40 @@
 
       <section id="usage" class="section two-column" aria-labelledby="usage-title">
         <div class="section-header">
-          <h2 id="usage-title">Usage</h2>
+          <h2 id="usage-title">Make a video</h2>
           <p>
-            The short command uses artist and title metadata for the output name when tags are available. Otherwise it
-            uses the source file name.
+            Most runs only need an audio path and an image path. If you do not choose an output name, yaatv uses the
+            audio file name, or artist/title tags when they are available.
           </p>
         </div>
 
         <div class="examples" aria-label="Command examples">
-          <pre><code>yaatv -a track.flac -i cover.jpg</code></pre>
-          <pre><code>yaatv -a track.wav -i cover.png -o upload.mp4 --resolution 4k</code></pre>
-          <pre><code>yaatv -a track.mp3 -i art.jpg --pad 2</code></pre>
+          <pre><code>yaatv -a audio.flac -i cover.jpg</code></pre>
+          <pre><code>yaatv -a episode.wav -i cover.png -o upload.mp4 --resolution 4k</code></pre>
+          <pre><code>yaatv -a session.mp3 -i art.jpg --pad 2</code></pre>
         </div>
       </section>
 
       <section id="output" class="section" aria-labelledby="output-title">
         <div class="section-header">
           <h2 id="output-title">What yaatv writes</h2>
-          <p>The defaults are chosen for static-image music uploads and checked after encoding.</p>
+          <p>The MP4 shows the cover image for the full length of the audio and is checked after encoding.</p>
         </div>
 
         <ul class="check-list">
-          <li>AAC at 48 kHz and 320 kbps or higher is copied without re-encoding.</li>
-          <li>Other audio is encoded as AAC-LC 384 kbps at 48 kHz.</li>
-          <li>Video uses H.264, 1 fps, CRF 16, yuv420p, BT.709 color metadata, and <code>+faststart</code>.</li>
+          <li>Audio is kept in an upload-friendly format.</li>
+          <li>Video is encoded for broad playback compatibility and YouTube uploads.</li>
           <li>Cover art keeps its aspect ratio. yaatv pads with black instead of stretching the image.</li>
-          <li>Finished files are verified with FFprobe before the CLI reports success.</li>
+          <li>Finished files are checked before yaatv reports success.</li>
         </ul>
       </section>
 
       <section class="section two-column" aria-labelledby="requirements-title">
         <div class="section-header">
-          <h2 id="requirements-title">Requirements</h2>
+          <h2 id="requirements-title">FFmpeg</h2>
           <p>
-            On Windows, yaatv checks <code>%LOCALAPPDATA%\yaatv\bin</code> before PATH and can install FFmpeg there
-            with <code>yaatv --install-ffmpeg</code>. Python installs on other systems call the FFmpeg tools on PATH.
+            On Windows, yaatv can install the FFmpeg tools it needs with <code>yaatv --install-ffmpeg</code>. Linux and
+            macOS release ZIPs include those tools. Python installs call the FFmpeg tools on PATH.
           </p>
         </div>
 
