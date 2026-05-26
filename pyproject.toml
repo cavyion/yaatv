@@ -20,8 +20,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "bandit[toml]>=1.7",
   "build>=1.2",
+  "mypy>=1.13",
+  "pip-audit>=2.7",
   "pytest>=8.0",
+  "ruff>=0.8",
   "twine>=5.1"
 ]
 
@@ -36,4 +40,35 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
   "integration: tests that run external tools such as FFmpeg"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "E",
+  "F",
+  "I",
+  "UP"
+]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/yaatv"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+warn_unused_configs = true
+
+[tool.bandit]
+exclude_dirs = ["assets", "build", "dist", "tests"]
+skips = [
+  "B310",
+  "B404",
+  "B603"
 ]

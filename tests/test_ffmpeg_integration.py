@@ -13,7 +13,6 @@ from PIL import Image
 
 from yaatv.cli import run
 
-
 pytestmark = pytest.mark.integration
 
 

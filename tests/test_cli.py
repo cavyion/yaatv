@@ -3,8 +3,7 @@ import os
 import re
 import sys
 import zipfile
-from io import BytesIO
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pytest
@@ -15,6 +14,7 @@ from yaatv.cli import (
     AudioMetadata,
     OutputStats,
     YaatvError,
+    _download_url,
     build_ffmpeg_command,
     choose_audio_plan,
     confirm_overwrite,
@@ -212,6 +212,20 @@ def test_sanitize_filename_has_fallback() -> None:
     assert sanitize_filename(' <>:"/\\|?* ') == "_________"
 
 
+def test_sanitize_filename_prefixes_windows_reserved_device_names() -> None:
+    assert sanitize_filename("CON") == "_CON"
+    assert sanitize_filename("con") == "_con"
+    assert sanitize_filename("NUL.txt") == "_NUL.txt"
+    assert sanitize_filename("COM1") == "_COM1"
+    assert sanitize_filename("LPT9") == "_LPT9"
+
+
+def test_default_output_avoids_windows_reserved_audio_stem() -> None:
+    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
+
+    assert default_output_path(Path("COM1.flac"), metadata) == Path("_COM1.mp4")
+
+
 def test_find_ffmpeg_uses_app_cache_before_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -315,6 +329,29 @@ def test_install_ffmpeg_rejects_checksum_failure(
         )
 
     assert not (tmp_path / "yaatv" / "bin").exists()
+
+
+def test_download_url_uses_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def urlopen(url: str, *, timeout: int) -> BytesIO:
+        captured["url"] = url
+        captured["timeout"] = timeout
+        return BytesIO(b"archive")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    destination = tmp_path / "ffmpeg.zip"
+
+    _download_url("https://example.invalid/ffmpeg.zip", destination)
+
+    assert captured == {
+        "url": "https://example.invalid/ffmpeg.zip",
+        "timeout": 60,
+    }
+    assert destination.read_bytes() == b"archive"
 
 
 def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(

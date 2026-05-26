@@ -45,6 +45,14 @@ jobs:
           yaatv --version
           python -m yaatv --version
 
+      - name: Run quality gates
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m ruff check .
+          python -m mypy
+          python -m bandit -c pyproject.toml -r src
+          python -m pip_audit . --strict
+
       - name: Run tests
         run: python -m pytest
 

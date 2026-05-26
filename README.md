@@ -32,6 +32,8 @@ Windows release ZIPs include `yaatv.exe` without FFmpeg. On Windows, run `.\yaat
 
 ## Run
 
+yaatv is a command-line app. Do not double-click the executable; open PowerShell or a terminal in the extracted folder and run it with your audio and image paths.
+
 On Windows, run the executable from PowerShell:
 
 ```powershell
@@ -139,6 +141,10 @@ Run the same checks used by CI:
 ```sh
 yaatv --version
 python -m yaatv --version
+python -m ruff check .
+python -m mypy
+python -m bandit -c pyproject.toml -r src
+python -m pip_audit . --strict
 python -m pytest
 python -m build
 python -m twine check dist/*

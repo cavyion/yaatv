@@ -12,16 +12,16 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Sequence, TextIO
+from typing import Any, TextIO
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
 from PIL import Image, UnidentifiedImageError
 
 from . import __version__
-
 
 RESOLUTIONS = {
     "1080p": (1920, 1080),
@@ -35,7 +35,18 @@ LOW_BITRATE_WARNING = 256_000
 TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CONIN$",
+    "CONOUT$",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
+FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
 WINDOWS_FFMPEG_ARCHIVE_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
     "autobuild-2026-05-25-14-02/"
@@ -256,7 +267,7 @@ def resolve_ffmpeg_tools(
         print("Install FFmpeg for yaatv now? [y/N] ", end="", file=stderr, flush=True)
         answer = stdin.readline().strip().lower()
         if answer not in {"y", "yes"}:
-            raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.")
+            raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.") from exc
 
         if installer is None:
             install_windows_ffmpeg(stderr=stderr)
@@ -304,7 +315,7 @@ def install_windows_ffmpeg(
 
 
 def _download_url(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url) as response:
+    with urllib.request.urlopen(url, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
         with destination.open("wb") as output:
             shutil.copyfileobj(response, output)
 
@@ -421,14 +432,14 @@ def _audio_codec(audio: object, path: Path) -> str | None:
     return None
 
 
-def _int_or_none(value: object) -> int | None:
+def _int_or_none(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
 
 
-def _float_or_none(value: object) -> float | None:
+def _float_or_none(value: Any) -> float | None:
     try:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
@@ -499,7 +510,11 @@ def default_output_path(audio_path: Path, metadata: AudioMetadata) -> Path:
 def sanitize_filename(value: str) -> str:
     sanitized = INVALID_FILENAME_CHARS.sub("_", value).strip(" .")
     sanitized = re.sub(r"\s+", " ", sanitized)
-    return sanitized or "output"
+    if not sanitized:
+        return "output"
+    if sanitized.split(".", 1)[0].upper() in WINDOWS_RESERVED_FILENAMES:
+        return f"_{sanitized}"
+    return sanitized
 
 
 def choose_audio_plan(metadata: AudioMetadata, pad: float) -> AudioPlan:

@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             package_name: yaatv-windows-x64
             executable_name: yaatv
             extension: .exe
@@ -57,6 +57,33 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p vendor/bin
+          ffprobe_binary_source=""
+          ffprobe_binary_checksum=""
+
+          download_checked() {
+            local url="$1"
+            local output="$2"
+            local expected_sha256="$3"
+            curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 \
+              "$url" \
+              -o "$output"
+            python - "$output" "$expected_sha256" <<'PY'
+          import hashlib
+          import sys
+
+          path = sys.argv[1]
+          expected = sys.argv[2].lower()
+          digest = hashlib.sha256()
+          with open(path, "rb") as input_file:
+              for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+                  digest.update(chunk)
+
+          actual = digest.hexdigest()
+          if actual != expected:
+              print(f"{path} checksum mismatch: expected {expected}, got {actual}", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+          }
 
           case "$RUNNER_OS" in
             Windows)
@@ -86,10 +113,9 @@ jobs:
               } > FFMPEG_BUILD_INFO.txt
               ;;
             Linux)
-              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-              curl -L \
-                "$ffmpeg_binary_source" \
-                -o ffmpeg.tar.xz
+              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-25-14-02/ffmpeg-N-124633-gc79dfd29e6-linux64-gpl.tar.xz"
+              ffmpeg_binary_checksum="de58117d6dd2c20e38e66febefe9732b00def28cf580195132478b64e679c8af"
+              download_checked "$ffmpeg_binary_source" ffmpeg.tar.xz "$ffmpeg_binary_checksum"
               mkdir ffmpeg-dist
               tar -xf ffmpeg.tar.xz -C ffmpeg-dist --strip-components=1
               cp ffmpeg-dist/bin/ffmpeg vendor/bin/
@@ -97,9 +123,12 @@ jobs:
               chmod +x vendor/bin/ffmpeg vendor/bin/ffprobe
               ;;
             macOS)
-              ffmpeg_binary_source="https://evermeet.cx/ffmpeg/"
-              curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o ffmpeg.zip
-              curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
+              ffmpeg_binary_source="https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip"
+              ffmpeg_binary_checksum="4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1"
+              ffprobe_binary_source="https://evermeet.cx/ffmpeg/ffprobe-8.1.1.zip"
+              ffprobe_binary_checksum="aeade29dee3c3844e9bcc974f4ae4b29cc4f87994177d77003a8589fa531009e"
+              download_checked "$ffmpeg_binary_source" ffmpeg.zip "$ffmpeg_binary_checksum"
+              download_checked "$ffprobe_binary_source" ffprobe.zip "$ffprobe_binary_checksum"
               python -m zipfile -e ffmpeg.zip ffmpeg-dist
               python -m zipfile -e ffprobe.zip ffprobe-dist
               cp ffmpeg-dist/ffmpeg vendor/bin/
@@ -121,13 +150,29 @@ jobs:
               echo
               echo "Runner OS: $RUNNER_OS"
               echo "Upstream binary source: $ffmpeg_binary_source"
+              echo "Upstream binary sha256: $ffmpeg_binary_checksum"
+              if [[ -n "$ffprobe_binary_source" ]]; then
+                echo "Upstream ffprobe source: $ffprobe_binary_source"
+                echo "Upstream ffprobe sha256: $ffprobe_binary_checksum"
+              fi
               echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
               echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
               echo
-              echo "Downloaded archive checksums:"
+              echo "Verified archive checksums:"
               for archive in ffmpeg.zip ffprobe.zip ffmpeg.tar.xz; do
                 if [[ -f "$archive" ]]; then
-                  sha256sum "$archive"
+                  python - "$archive" <<'PY'
+          import hashlib
+          import sys
+
+          path = sys.argv[1]
+          digest = hashlib.sha256()
+          with open(path, "rb") as input_file:
+              for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
+                  digest.update(chunk)
+
+          print(f"{digest.hexdigest()}  {path}")
+          PY
                 fi
               done
               echo
