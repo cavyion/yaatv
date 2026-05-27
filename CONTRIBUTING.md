@@ -1,6 +1,6 @@
 # Contributing to yaatv
 
-yaatv is very small and focused on youtube optimization at the momeny. The best way to help is to send me one reproducible report or one focused patch at a time, I'm always open to adding new features as we are still in the pre-release version! thank you for your support.
+yaatv is a small CLI focused on YouTube-ready audio videos. The best way to help is to send one reproducible report or one focused patch at a time.
 
 - [Opening an issue](#opening-an-issue)
 - [Automated contributions policy](#automated-contributions-policy)

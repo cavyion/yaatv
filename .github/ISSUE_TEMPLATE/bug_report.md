@@ -1,38 +1,43 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report a reproducible yaatv CLI problem
 title: ''
-labels: ''
+labels: bug
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## What happened
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+Describe the failure and what you expected instead.
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Command
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+```sh
+yaatv -a audio.flac -i cover.jpg -o output.mp4
+```
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+## Terminal output
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+```text
+Paste the full output here.
+```
 
-**Additional context**
-Add any other context about the problem here.
+## Environment
+
+- OS:
+- yaatv version:
+- Install method: release ZIP, Python install, or source checkout
+- FFmpeg version:
+- FFprobe version:
+
+## Input details
+
+- Audio format:
+- Image format:
+- Resolution and padding options:
+- Does the output file already exist?
+
+## Reproduction notes
+
+Attach or link a small sample only if you have permission to share it.
