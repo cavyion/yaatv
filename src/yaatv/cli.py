@@ -1010,7 +1010,8 @@ def verify_output_stats(stats: OutputStats, target_size: tuple[int, int], is_pro
             failures.append(f"expected H.264 video, got {stats.video_codec or 'unknown'}")
         if stats.pixel_format != "yuv420p":
             failures.append(f"expected yuv420p video, got {stats.pixel_format or 'unknown'}")
-    if stats.color_range not in {"tv", "mpeg"}:
+    # Some FFprobe builds do not report color_range for ProRes MOV.
+    if stats.color_range not in {"tv", "mpeg"} and not (is_prores and stats.color_range is None):
         failures.append(f"expected limited color range, got {stats.color_range or 'unknown'}")
     if stats.color_space != "bt709":
         failures.append(f"expected bt709 colorspace, got {stats.color_space or 'unknown'}")

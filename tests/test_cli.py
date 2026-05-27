@@ -653,6 +653,24 @@ def test_verify_prores_output_stats() -> None:
     )
 
 
+def test_verify_prores_output_accepts_unreported_color_range() -> None:
+    stats = OutputStats(
+        width=1920,
+        height=1080,
+        video_codec="prores",
+        pixel_format="yuv422p10le",
+        color_range=None,
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        frame_rate=1.0,
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+    )
+
+    verify_output_stats(stats, (1920, 1080), is_prores=True)
+
+
 def test_verify_prores_output_rejects_h264_in_prores_mode() -> None:
     stats = OutputStats(
         width=1920,
@@ -692,6 +710,25 @@ def test_verify_output_stats_accepts_expected_youtube_profile() -> None:
     assert format_output_stats(stats) == (
         "1920x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
     )
+
+
+def test_verify_output_stats_rejects_unreported_h264_color_range() -> None:
+    stats = OutputStats(
+        width=1920,
+        height=1080,
+        video_codec="h264",
+        pixel_format="yuv420p",
+        color_range=None,
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        frame_rate=1.0,
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+    )
+
+    with pytest.raises(YaatvError, match="expected limited color range, got unknown"):
+        verify_output_stats(stats, (1920, 1080))
 
 
 def test_verify_output_stats_rejects_wrong_profile() -> None:
