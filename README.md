@@ -82,8 +82,8 @@ yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
 
 Flags:
 
-- `-a`, `--audio`: audio file, required
-- `-i`, `--image`: cover image, required
+- `-a`, `--audio`: audio file, required unless using `--install-ffmpeg`
+- `-i`, `--image`: cover image, required unless using `--install-ffmpeg`
 - `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
@@ -155,7 +155,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.2.1
+git tag v0.2.2
 git push origin main --tags
 ```
 

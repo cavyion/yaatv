@@ -27,6 +27,7 @@ from yaatv.cli import (
     quality_warnings,
     read_audio_metadata,
     resolve_ffmpeg_tools,
+    run,
     sanitize_filename,
     validate_image,
     verify_output_stats,
@@ -82,6 +83,14 @@ def test_release_workflow_checks_tag_version_before_building() -> None:
     assert "Validate release tag version" in workflow
     assert "tag_version=\"${GITHUB_REF_NAME#v}\"" in workflow
     assert "pyproject.toml" in workflow
+
+
+def test_audio_and_image_are_required_for_encoding() -> None:
+    with pytest.raises(YaatvError, match="Audio file is required"):
+        run([], stdin=StringIO(), stderr=StringIO())
+
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(["--audio", "track.wav"], stdin=StringIO(), stderr=StringIO())
 
 
 def test_transcode_command_uses_required_youtube_settings() -> None:

@@ -110,13 +110,22 @@ def format_seconds(seconds: float) -> str:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     argv_list = list(sys.argv[1:] if argv is None else argv)
-    installing_ffmpeg = "--install-ffmpeg" in argv_list
     parser = argparse.ArgumentParser(
         prog="yaatv",
         description="Combine an audio file and cover image into a YouTube-optimized MP4.",
     )
-    parser.add_argument("-a", "--audio", required=not installing_ffmpeg, type=Path, help="Path to audio file")
-    parser.add_argument("-i", "--image", required=not installing_ffmpeg, type=Path, help="Path to cover image")
+    parser.add_argument(
+        "-a",
+        "--audio",
+        type=Path,
+        help="Path to audio file (required unless using --install-ffmpeg)",
+    )
+    parser.add_argument(
+        "-i",
+        "--image",
+        type=Path,
+        help="Path to cover image (required unless using --install-ffmpeg)",
+    )
     parser.add_argument(
         "-o",
         "--output",
@@ -842,11 +851,20 @@ def _sample_rate_label(sample_rate: int | None) -> str:
     return f"{sample_rate}Hz"
 
 
-def run(argv: Sequence[str] | None = None, stdin: TextIO = sys.stdin, stderr: TextIO = sys.stderr) -> int:
+def run(
+    argv: Sequence[str] | None = None,
+    stdin: TextIO = sys.stdin,
+    stderr: TextIO = sys.stderr,
+) -> int:
     args = parse_args(argv)
     if args.install_ffmpeg:
         install_windows_ffmpeg(stderr=stderr)
         return 0
+
+    if args.audio is None:
+        raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
+    if args.image is None:
+        raise YaatvError("Cover image is required. Use -i/--image to choose one.")
 
     audio_path = require_file(args.audio, "Audio file")
     image_path = require_file(args.image, "Cover image")
