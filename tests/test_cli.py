@@ -68,6 +68,22 @@ def test_runtime_version_matches_project_metadata() -> None:
     assert __version__ == _pyproject_version()
 
 
+def test_readme_release_tag_matches_project_metadata() -> None:
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+
+    assert f"git tag v{_pyproject_version()}" in readme
+
+
+def test_release_workflow_checks_tag_version_before_building() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Validate release tag version" in workflow
+    assert "tag_version=\"${GITHUB_REF_NAME#v}\"" in workflow
+    assert "pyproject.toml" in workflow
+
+
 def test_transcode_command_uses_required_youtube_settings() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
@@ -85,6 +101,8 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
     )
 
     assert command[:8] == ["ffmpeg", "-n", "-loop", "1", "-framerate", "1", "-i", "cover.jpg"]
+    assert command[command.index("-map") + 1] == "0:v:0"
+    assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
     assert command[command.index("-c:v") + 1] == "libx264"
     assert command[command.index("-preset") + 1] == "slow"
     assert command[command.index("-crf") + 1] == "16"

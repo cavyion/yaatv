@@ -155,7 +155,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.2.0
+git tag v0.2.1
 git push origin main --tags
 ```
 
