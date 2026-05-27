@@ -83,11 +83,29 @@ If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed
 
 yaatv uses `major.minor.patch` versions.
 
+### Before 1.0
+
+While yaatv is before 1.0, the major version stays `0`.
+
+- Patch: bug fixes, docs, tests, release workflow fixes, and internal hardening that do not change user-facing behavior.
+- Minor: new features, behavior changes, breaking changes, output contract changes, release packaging changes that alter install or download behavior, or removed behavior.
+- Major: reserved for the first stable release.
+
+### After 1.0
+
+After stable 1.0:
+
 - Patch: bug fixes, docs, tests, release workflow fixes, and internal hardening that do not change user-facing behavior.
 - Minor: new user-facing CLI flags, new supported workflows, release packaging changes that alter install or download behavior, or other backward-compatible behavior changes.
 - Major: breaking CLI changes, output contract changes, or removed behavior.
 
+### Keeping versions in sync
+
 Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README publishing example in sync. The release workflow refuses tag builds when `vX.Y.Z` does not match `pyproject.toml`.
+
+### Tags
+
+Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.4.0`, tag that commit as `v0.4.0`. This keeps the release history clean and the CI build trigger working.
 
 ## Coding style
 

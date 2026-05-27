@@ -1,6 +1,6 @@
 # yaatv
 
-yaatv turns audio and cover art into a YouTube-ready MP4 without opening a video editor.
+yaatv turns audio and cover art into a YouTube-ready video without opening a video editor.
 
 It is built for audio creators: producers, ASMRtists, podcasters, DJs, narrators, and anyone publishing audio with a static image.
 
@@ -10,7 +10,7 @@ Works with common audio files like WAV, FLAC, MP3, M4A/AAC, OGG, and Opus, plus 
 yaatv -a audio.flac -i cover.jpg -o upload.mp4
 ```
 
-Give it audio. Give it artwork. Get an MP4 you can upload.
+Give it audio. Give it artwork. Get a video you can upload.
 
 Website and docs: <https://yaatv.org>
 
@@ -70,7 +70,7 @@ xattr -d com.apple.quarantine ./yaatv-macos
 
 ## Usage
 
-The smallest command uses the audio file name, or artist/title tags when available, for the output MP4:
+The smallest command uses the audio file name, or artist/title tags when available, for the output file:
 
 ```sh
 yaatv -a audio.flac -i cover.jpg
@@ -86,16 +86,37 @@ Flags:
 
 - `-a`, `--audio`: audio file, required unless using `--install-ffmpeg`
 - `-i`, `--image`: cover image, required unless using `--install-ffmpeg`
-- `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available
+- `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available; `.mov` writes ProRes MOV
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
 - `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed bin directory
 
+## Source files
+
+yaatv accepts common audio files and static cover images. Higher-quality source files give cleaner uploads, especially at 1440p and 4k.
+
+Audio:
+
+- WAV, FLAC, MP3, M4A/AAC, OGG, and Opus are supported.
+- Use WAV, FLAC, or high-bitrate AAC when available.
+- 24-bit WAV is a good source format.
+
+Cover image:
+
+- Use at least 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k.
+- Larger square artwork, such as 3000x3000, can avoid upscaling for 4k output.
+- Use JPG, PNG, or static WebP. GIF and animated WebP files are rejected.
+- Square images fill the whole frame. Non-square images get black bars on the sides.
+
+yaatv warns you if your source is smaller than the output resolution. Pass `--no-warn` to hide those warnings.
+
 ## Output
 
-yaatv creates a normal MP4 with your cover image shown for the full length of the audio.
+yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv creates a ProRes MOV instead.
 
+- MP4 output uses H.264 video at CRF 16, preset `slow`, yuv420p pixel format, and `+faststart`.
+- MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
 - Audio is kept in an upload-friendly format. High-quality AAC can be copied directly when no padding is needed.
 - Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
 - Video is encoded for broad playback compatibility and YouTube uploads.
@@ -157,7 +178,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.3.0
+git tag v0.4.0
 git push origin main --tags
 ```
 

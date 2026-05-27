@@ -125,7 +125,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     argv_list = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="yaatv",
-        description="Combine an audio file and cover image into a YouTube-optimized MP4.",
+        description="Combine an audio file and cover image into a YouTube-optimized video.",
     )
     parser.add_argument(
         "-a",
@@ -143,7 +143,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "-o",
         "--output",
         type=Path,
-        help="Output path (default: [Artist] - [Title].mp4)",
+        help="Output path (default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
     )
     parser.add_argument(
         "--resolution",
@@ -807,8 +807,58 @@ def build_ffmpeg_command(
     audio_plan: AudioPlan,
     overwrite: bool,
     output_duration: float | None = None,
+    is_prores: bool = False,
 ) -> list[str]:
     width, height = target_size
+    if is_prores:
+        video_filter = (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+            "format=yuv422p10le,"
+            "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+        )
+        return [
+            ffmpeg,
+            "-y" if overwrite else "-n",
+            "-loop",
+            "1",
+            "-framerate",
+            "1",
+            "-i",
+            str(image_path),
+            "-i",
+            str(audio_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "prores_ks",
+            "-profile:v",
+            "2",
+            "-pix_fmt",
+            "yuv422p10le",
+            "-vendor",
+            "apl0",
+            "-color_range",
+            "tv",
+            "-colorspace",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            *audio_plan.codec_args,
+            *audio_plan.filter_args,
+            "-shortest",
+            "-vf",
+            video_filter,
+            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
+            "-f",
+            "mov",
+            str(output_path),
+        ]
+
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
@@ -943,16 +993,23 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
     )
 
 
-def verify_output_stats(stats: OutputStats, target_size: tuple[int, int]) -> None:
+def verify_output_stats(stats: OutputStats, target_size: tuple[int, int], is_prores: bool = False) -> None:
     target_width, target_height = target_size
     failures: list[str] = []
 
     if (stats.width, stats.height) != target_size:
         failures.append(f"expected {target_width}x{target_height}, got {_resolution_label(stats)}")
-    if stats.video_codec != "h264":
-        failures.append(f"expected H.264 video, got {stats.video_codec or 'unknown'}")
-    if stats.pixel_format != "yuv420p":
-        failures.append(f"expected yuv420p video, got {stats.pixel_format or 'unknown'}")
+
+    if is_prores:
+        if stats.video_codec != "prores":
+            failures.append(f"expected ProRes video, got {stats.video_codec or 'unknown'}")
+        if stats.pixel_format != "yuv422p10le":
+            failures.append(f"expected yuv422p10le video, got {stats.pixel_format or 'unknown'}")
+    else:
+        if stats.video_codec != "h264":
+            failures.append(f"expected H.264 video, got {stats.video_codec or 'unknown'}")
+        if stats.pixel_format != "yuv420p":
+            failures.append(f"expected yuv420p video, got {stats.pixel_format or 'unknown'}")
     if stats.color_range not in {"tv", "mpeg"}:
         failures.append(f"expected limited color range, got {stats.color_range or 'unknown'}")
     if stats.color_space != "bt709":
@@ -1026,7 +1083,11 @@ def _resolution_label(stats: OutputStats) -> str:
 
 
 def _video_codec_label(codec: str | None) -> str:
-    return "H.264" if codec == "h264" else codec or "unknown"
+    if codec == "h264":
+        return "H.264"
+    if codec == "prores":
+        return "ProRes 422"
+    return codec or "unknown"
 
 
 def _audio_codec_label(codec: str | None) -> str:
@@ -1080,9 +1141,13 @@ def run(
     audio_plan = choose_audio_plan(metadata, args.pad)
     output_duration = math.ceil(metadata.duration + args.pad) if metadata.duration is not None else None
 
+    is_prores = output_path.suffix.lower() == ".mov"
+
     if not args.no_warn:
         for warning in quality_warnings(metadata, image_size, target_size):
             print(f"warning: {warning}", file=stderr)
+    if is_prores:
+        print("note: .mov output uses ProRes 422; file sizes will be very large", file=stderr)
 
     command = build_ffmpeg_command(
         ffmpeg=ffmpeg,
@@ -1093,13 +1158,14 @@ def run(
         audio_plan=audio_plan,
         overwrite=overwrite,
         output_duration=output_duration,
+        is_prores=is_prores,
     )
     exit_code = run_ffmpeg(command)
     if exit_code != 0:
         return exit_code
 
     stats = probe_output(ffprobe, output_path)
-    verify_output_stats(stats, target_size)
+    verify_output_stats(stats, target_size, is_prores=is_prores)
     print_output_summary(output_path, stats, stderr=stderr)
     return 0
 

@@ -578,6 +578,100 @@ def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> Non
         confirm_overwrite(output, stdin=StringIO(), stderr=StringIO())
 
 
+def test_prores_command_uses_correct_encoder_settings() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mov"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        is_prores=True,
+    )
+
+    assert command[command.index("-c:v") + 1] == "prores_ks"
+    assert command[command.index("-profile:v") + 1] == "2"
+    assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
+    assert command[command.index("-vendor") + 1] == "apl0"
+    assert command[command.index("-f") + 1] == "mov"
+    assert "-movflags" not in command
+    assert command[command.index("-vf") + 1] == (
+        "scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,"
+        "format=yuv422p10le,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def test_h264_command_unchanged_without_is_prores() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=2,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(2560, 1440),
+        audio_plan=plan,
+        overwrite=False,
+    )
+
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-pix_fmt") + 1] == "yuv420p"
+    assert command[command.index("-movflags") + 1] == "+faststart"
+    assert "-f" not in command or command[command.index("-f") + 1] != "mov"
+
+
+def test_verify_prores_output_stats() -> None:
+    stats = OutputStats(
+        width=1920,
+        height=1080,
+        video_codec="prores",
+        pixel_format="yuv422p10le",
+        color_range="tv",
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        frame_rate=1.0,
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+    )
+
+    verify_output_stats(stats, (1920, 1080), is_prores=True)
+
+    assert format_output_stats(stats) == (
+        "1920x1080, ProRes 422/yuv422p10le, bt709, 1fps video, AAC 48kHz"
+    )
+
+
+def test_verify_prores_output_rejects_h264_in_prores_mode() -> None:
+    stats = OutputStats(
+        width=1920,
+        height=1080,
+        video_codec="h264",
+        pixel_format="yuv420p",
+        color_range="tv",
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        frame_rate=1.0,
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+    )
+
+    with pytest.raises(YaatvError, match="expected ProRes video"):
+        verify_output_stats(stats, (1920, 1080), is_prores=True)
+
+
 def test_verify_output_stats_accepts_expected_youtube_profile() -> None:
     stats = OutputStats(
         width=1920,

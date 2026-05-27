@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yaatv"
-version = "0.3.0"
-description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-optimized MP4."
+version = "0.4.0"
+description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-optimized video."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

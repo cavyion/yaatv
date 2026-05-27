@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="yaatv turns audio and static cover art into a YouTube-ready MP4 for music, ASMR, podcasts, and other audio uploads."
+      content="yaatv turns audio and static cover art into a YouTube-ready video for music, ASMR, podcasts, and other audio uploads."
     >
     <meta name="theme-color" content="#f6f8fb">
     <title>yaatv - Yet Another Audio To Video</title>
@@ -29,10 +29,10 @@
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="project-label">Yet Another Audio To Video</p>
-          <h1 id="hero-title">Audio and cover art to MP4.</h1>
+          <h1 id="hero-title">Audio and cover art to video.</h1>
           <p class="lead">
             Turn a song, ASMR session, podcast episode, mix, or voice note into an upload-ready video file. Pick an
-            audio file, pick a static cover image, and yaatv makes the MP4 locally.
+            audio file, pick a static cover image, and yaatv makes the video locally.
           </p>
           <div class="actions" role="group" aria-label="Primary actions">
             <a class="button button-primary" href="https://github.com/cavyion/yaatv/releases/latest">Download yaatv</a>
@@ -71,7 +71,7 @@
           </div>
           <div class="file-item">
             <h3>Result</h3>
-            <p>An MP4 with the image visible for the full audio length, ready to upload to YouTube.</p>
+            <p>An MP4 by default, or a ProRes MOV when the output path ends in <code>.mov</code>.</p>
           </div>
         </div>
       </section>
@@ -135,6 +135,7 @@
         <div class="examples" role="group" aria-label="Command examples">
           <pre><code>yaatv -a audio.flac -i cover.jpg</code></pre>
           <pre><code>yaatv -a episode.wav -i cover.png -o upload.mp4 --resolution 4k</code></pre>
+          <pre><code>yaatv -a mix.wav -i cover.jpg -o upload.mov</code></pre>
           <pre><code>yaatv -a session.mp3 -i art.jpg --pad 2</code></pre>
         </div>
       </section>
@@ -142,12 +143,13 @@
       <section id="output" class="section" aria-labelledby="output-title">
         <div class="section-header">
           <h2 id="output-title">What yaatv writes</h2>
-          <p>The MP4 shows the cover image for the full length of the audio and is checked after encoding.</p>
+          <p>The output shows the cover image for the full length of the audio and is checked after encoding.</p>
         </div>
 
         <ul class="check-list">
+          <li>MP4 output uses H.264 for broad playback compatibility and YouTube uploads.</li>
+          <li>MOV output uses ProRes 422 for workflows that need MOV files.</li>
           <li>Audio is kept in an upload-friendly format.</li>
-          <li>Video is encoded for broad playback compatibility and YouTube uploads.</li>
           <li>Cover art keeps its aspect ratio. yaatv pads with black instead of stretching the image.</li>
           <li>Finished files are checked before yaatv reports success.</li>
         </ul>
