@@ -83,8 +83,8 @@ If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed
 
 yaatv uses `major.minor.patch` versions.
 
-- Patch: bug fixes, docs, tests, release workflow fixes, and internal hardening that does not add CLI behavior.
-- Minor: new user-facing CLI flags, new supported workflows, or behavior changes that remain backward-compatible.
+- Patch: bug fixes, docs, tests, release workflow fixes, and internal hardening that do not change user-facing behavior.
+- Minor: new user-facing CLI flags, new supported workflows, release packaging changes that alter install or download behavior, or other backward-compatible behavior changes.
 - Major: breaking CLI changes, output contract changes, or removed behavior.
 
 Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README publishing example in sync. The release workflow refuses tag builds when `vX.Y.Z` does not match `pyproject.toml`.

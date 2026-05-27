@@ -28,7 +28,7 @@ Use one of these release assets:
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files unless you specifically want the code.
 
-Windows release ZIPs include `yaatv.exe` without FFmpeg. On Windows, run `.\yaatv.exe --install-ffmpeg` once to install FFmpeg and FFprobe into `%LOCALAPPDATA%\yaatv\bin`; yaatv checks that location before PATH and does not modify system PATH. Linux and macOS release ZIPs include FFmpeg and FFprobe.
+Release ZIPs include the yaatv executable without FFmpeg. Run `--install-ffmpeg` once to install FFmpeg and FFprobe into yaatv's app-managed bin directory; yaatv checks that location before PATH and does not modify system PATH. Normal encoding stays local after those tools are installed.
 
 ## Run
 
@@ -42,13 +42,14 @@ On Windows, run the executable from PowerShell:
 .\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
 
-If FFmpeg is missing during an interactive Windows run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `.\yaatv.exe --install-ffmpeg`.
+If FFmpeg is missing during an interactive run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `--install-ffmpeg`.
 
 On Linux:
 
 ```sh
 chmod +x ./yaatv-linux
 ./yaatv-linux --version
+./yaatv-linux --install-ffmpeg
 ./yaatv-linux -a episode.wav -i cover.jpg -o output.mp4
 ```
 
@@ -57,6 +58,7 @@ On macOS:
 ```sh
 chmod +x ./yaatv-macos
 ./yaatv-macos --version
+./yaatv-macos --install-ffmpeg
 ./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
 ```
 
@@ -88,7 +90,7 @@ Flags:
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
-- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed Windows bin directory
+- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed bin directory
 
 ## Output
 
@@ -115,18 +117,18 @@ yaatv --version
 
 Python 3.10 or newer is required.
 
-Python installs do not bundle FFmpeg. On Windows, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. On other systems, install FFmpeg separately and make sure both commands work:
+Python installs do not bundle FFmpeg. On supported x64 systems, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. If you use your own FFmpeg install instead, make sure both commands work:
 
 ```sh
 ffmpeg -version
 ffprobe -version
 ```
 
-Download FFmpeg from <https://ffmpeg.org/download.html>.
+Download FFmpeg from <https://ffmpeg.org/download.html> if you want to manage the tools yourself.
 
 ## Third-party binaries
 
-The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
+The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. FFmpeg and FFprobe are downloaded only when `--install-ffmpeg` is used. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
 
 ## Development
 
@@ -155,7 +157,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.2.2
+git tag v0.3.0
 git push origin main --tags
 ```
 

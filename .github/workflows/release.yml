@@ -70,146 +70,62 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
-      - name: Prepare FFmpeg release assets
+      - name: Prepare FFmpeg release notes
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p vendor/bin
-          ffprobe_binary_source=""
-          ffprobe_binary_checksum=""
+          python - <<'PY' > FFMPEG_BUILD_INFO.txt
+          import os
 
-          download_checked() {
-            local url="$1"
-            local output="$2"
-            local expected_sha256="$3"
-            curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 \
-              "$url" \
-              -o "$output"
-            python - "$output" "$expected_sha256" <<'PY'
-          import hashlib
-          import sys
+          from yaatv.cli import (
+              LINUX_FFMPEG_ARCHIVE_SHA256,
+              LINUX_FFMPEG_ARCHIVE_URL,
+              MACOS_FFMPEG_ARCHIVE_SHA256,
+              MACOS_FFMPEG_ARCHIVE_URL,
+              MACOS_FFPROBE_ARCHIVE_SHA256,
+              MACOS_FFPROBE_ARCHIVE_URL,
+              WINDOWS_FFMPEG_ARCHIVE_SHA256,
+              WINDOWS_FFMPEG_ARCHIVE_URL,
+          )
 
-          path = sys.argv[1]
-          expected = sys.argv[2].lower()
-          digest = hashlib.sha256()
-          with open(path, "rb") as input_file:
-              for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
-                  digest.update(chunk)
+          runner_os = os.environ["RUNNER_OS"]
 
-          actual = digest.hexdigest()
-          if actual != expected:
-              print(f"{path} checksum mismatch: expected {expected}, got {actual}", file=sys.stderr)
-              raise SystemExit(1)
+          print("The yaatv release executable does not bundle FFmpeg or FFprobe.")
+          print("Run yaatv --install-ffmpeg to install the app-managed FFmpeg tools.")
+          print()
+          print(f"Runner OS: {runner_os}")
+
+          if runner_os == "Windows":
+              print(f"Installer archive source: {WINDOWS_FFMPEG_ARCHIVE_URL}")
+              print(f"Installer archive sha256: {WINDOWS_FFMPEG_ARCHIVE_SHA256}")
+              print(r"Install path: %LOCALAPPDATA%\yaatv\bin")
+              print("Extracted files: ffmpeg.exe, ffprobe.exe")
+          elif runner_os == "Linux":
+              print(f"Installer archive source: {LINUX_FFMPEG_ARCHIVE_URL}")
+              print(f"Installer archive sha256: {LINUX_FFMPEG_ARCHIVE_SHA256}")
+              print("Install path: $XDG_DATA_HOME/yaatv/bin, or ~/.local/share/yaatv/bin")
+              print("Extracted files: ffmpeg, ffprobe")
+          elif runner_os == "macOS":
+              print(f"Installer ffmpeg source: {MACOS_FFMPEG_ARCHIVE_URL}")
+              print(f"Installer ffmpeg sha256: {MACOS_FFMPEG_ARCHIVE_SHA256}")
+              print(f"Installer ffprobe source: {MACOS_FFPROBE_ARCHIVE_URL}")
+              print(f"Installer ffprobe sha256: {MACOS_FFPROBE_ARCHIVE_SHA256}")
+              print("Install path: ~/Library/Application Support/yaatv/bin")
+              print("Extracted files: ffmpeg, ffprobe")
+          else:
+              raise SystemExit(f"Unsupported runner OS: {runner_os}")
+
+          print()
+          print("FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git")
+          print("FFmpeg legal information: https://ffmpeg.org/legal.html")
           PY
-          }
-
-          case "$RUNNER_OS" in
-            Windows)
-              ffmpeg_binary_source="$(python - <<'PY'
-          from yaatv.cli import WINDOWS_FFMPEG_ARCHIVE_URL
-
-          print(WINDOWS_FFMPEG_ARCHIVE_URL)
-          PY
-          )"
-              ffmpeg_binary_checksum="$(python - <<'PY'
-          from yaatv.cli import WINDOWS_FFMPEG_ARCHIVE_SHA256
-
-          print(WINDOWS_FFMPEG_ARCHIVE_SHA256)
-          PY
-          )"
-              {
-                echo "The Windows yaatv executable does not bundle FFmpeg or FFprobe."
-                echo "Run yaatv --install-ffmpeg to install the app-managed FFmpeg tools."
-                echo
-                echo "Installer archive source: $ffmpeg_binary_source"
-                echo "Installer archive sha256: $ffmpeg_binary_checksum"
-                echo "Install path: %LOCALAPPDATA%\\yaatv\\bin"
-                echo "Extracted files: ffmpeg.exe, ffprobe.exe"
-                echo
-                echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
-                echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
-              } > FFMPEG_BUILD_INFO.txt
-              ;;
-            Linux)
-              ffmpeg_binary_source="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-25-14-02/ffmpeg-N-124633-gc79dfd29e6-linux64-gpl.tar.xz"
-              ffmpeg_binary_checksum="de58117d6dd2c20e38e66febefe9732b00def28cf580195132478b64e679c8af"
-              download_checked "$ffmpeg_binary_source" ffmpeg.tar.xz "$ffmpeg_binary_checksum"
-              mkdir ffmpeg-dist
-              tar -xf ffmpeg.tar.xz -C ffmpeg-dist --strip-components=1
-              cp ffmpeg-dist/bin/ffmpeg vendor/bin/
-              cp ffmpeg-dist/bin/ffprobe vendor/bin/
-              chmod +x vendor/bin/ffmpeg vendor/bin/ffprobe
-              ;;
-            macOS)
-              ffmpeg_binary_source="https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip"
-              ffmpeg_binary_checksum="4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1"
-              ffprobe_binary_source="https://evermeet.cx/ffmpeg/ffprobe-8.1.1.zip"
-              ffprobe_binary_checksum="aeade29dee3c3844e9bcc974f4ae4b29cc4f87994177d77003a8589fa531009e"
-              download_checked "$ffmpeg_binary_source" ffmpeg.zip "$ffmpeg_binary_checksum"
-              download_checked "$ffprobe_binary_source" ffprobe.zip "$ffprobe_binary_checksum"
-              python -m zipfile -e ffmpeg.zip ffmpeg-dist
-              python -m zipfile -e ffprobe.zip ffprobe-dist
-              cp ffmpeg-dist/ffmpeg vendor/bin/
-              cp ffprobe-dist/ffprobe vendor/bin/
-              chmod +x vendor/bin/ffmpeg vendor/bin/ffprobe
-              ;;
-            *)
-              echo "Unsupported runner OS: $RUNNER_OS" >&2
-              exit 1
-              ;;
-          esac
-
-          if [[ "$RUNNER_OS" != "Windows" ]]; then
-            suffix=""
-            "vendor/bin/ffmpeg${suffix}" -version
-            "vendor/bin/ffprobe${suffix}" -version
-            {
-              echo "yaatv bundles FFmpeg and FFprobe downloaded during the release workflow."
-              echo
-              echo "Runner OS: $RUNNER_OS"
-              echo "Upstream binary source: $ffmpeg_binary_source"
-              echo "Upstream binary sha256: $ffmpeg_binary_checksum"
-              if [[ -n "$ffprobe_binary_source" ]]; then
-                echo "Upstream ffprobe source: $ffprobe_binary_source"
-                echo "Upstream ffprobe sha256: $ffprobe_binary_checksum"
-              fi
-              echo "FFmpeg project source: https://git.ffmpeg.org/ffmpeg.git"
-              echo "FFmpeg legal information: https://ffmpeg.org/legal.html"
-              echo
-              echo "Verified archive checksums:"
-              for archive in ffmpeg.zip ffprobe.zip ffmpeg.tar.xz; do
-                if [[ -f "$archive" ]]; then
-                  python - "$archive" <<'PY'
-          import hashlib
-          import sys
-
-          path = sys.argv[1]
-          digest = hashlib.sha256()
-          with open(path, "rb") as input_file:
-              for chunk in iter(lambda: input_file.read(1024 * 1024), b""):
-                  digest.update(chunk)
-
-          print(f"{digest.hexdigest()}  {path}")
-          PY
-                fi
-              done
-              echo
-              echo "ffmpeg -version:"
-              "vendor/bin/ffmpeg${suffix}" -version
-              echo
-              echo "ffprobe -version:"
-              "vendor/bin/ffprobe${suffix}" -version
-            } > FFMPEG_BUILD_INFO.txt
-          fi
 
       - name: Build executable
         shell: bash
         run: |
           python -c "from pathlib import Path; Path('yaatv_launcher.py').write_text('from yaatv.cli import main\nraise SystemExit(main())\n', encoding='utf-8')"
-          suffix=""
           separator=":"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            suffix=".exe"
             separator=";"
           fi
           pyinstaller_args=(
@@ -219,12 +135,6 @@ jobs:
             --add-data "THIRD_PARTY_NOTICES.md${separator}."
             --add-data "FFMPEG_BUILD_INFO.txt${separator}."
           )
-          if [[ "$RUNNER_OS" != "Windows" ]]; then
-            pyinstaller_args+=(
-              --add-binary "vendor/bin/ffmpeg${suffix}${separator}bin"
-              --add-binary "vendor/bin/ffprobe${suffix}${separator}bin"
-            )
-          fi
           python -m PyInstaller "${pyinstaller_args[@]}" yaatv_launcher.py
 
       - name: Smoke test executable
@@ -253,11 +163,25 @@ jobs:
           PY
           chmod +x "$executable"
           "$executable" --version
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            mkdir -p smoke-localappdata
-            export LOCALAPPDATA="$(cygpath -w "$PWD/smoke-localappdata")"
-            "$executable" --install-ffmpeg
-          fi
+          case "$RUNNER_OS" in
+            Windows)
+              mkdir -p smoke-localappdata
+              export LOCALAPPDATA="$(cygpath -w "$PWD/smoke-localappdata")"
+              ;;
+            Linux)
+              mkdir -p smoke-xdg-data
+              export XDG_DATA_HOME="$PWD/smoke-xdg-data"
+              ;;
+            macOS)
+              mkdir -p smoke-home
+              export HOME="$PWD/smoke-home"
+              ;;
+            *)
+              echo "Unsupported runner OS: $RUNNER_OS" >&2
+              exit 1
+              ;;
+          esac
+          "$executable" --install-ffmpeg
           "$executable" \
             --audio smoke-audio.wav \
             --image docs/docs-assets/yaatv-sample.jpg \

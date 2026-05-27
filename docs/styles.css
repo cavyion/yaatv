@@ -379,42 +379,140 @@ tbody tr:last-child td {
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .site-header {
-    gap: 14px;
+    padding: 12px 16px;
+  }
+
+  .brand {
+    font-size: 0.95rem;
   }
 
   .site-nav {
-    font-size: 0.88rem;
+    gap: 12px 10px;
+    font-size: 0.85rem;
   }
 
   main {
-    width: min(100% - 24px, 680px);
+    width: min(100% - 20px, 680px);
   }
 
   .hero {
-    padding-top: 34px;
+    padding: 28px 0 30px;
   }
 
   h1 {
-    font-size: 2.75rem;
+    font-size: 2.5rem;
+  }
+
+  h2 {
+    font-size: 1.6rem;
   }
 
   .lead {
-    font-size: 1.08rem;
+    font-size: 1rem;
+    line-height: 1.5;
   }
 
   .button {
     width: 100%;
   }
 
+  .command {
+    padding: 12px 14px;
+    font-size: 0.82rem;
+  }
+
+  .examples pre {
+    padding: 10px 12px;
+    font-size: 0.82rem;
+  }
+
+  code {
+    font-size: 0.82rem;
+  }
+
+  .section {
+    padding: 28px 0;
+  }
+
+  .check-list {
+    padding-left: 16px;
+  }
+
   th,
   td {
-    padding: 12px 8px;
+    padding: 10px 8px;
+    font-size: 0.88rem;
   }
 
   td code,
   li code {
+    font-size: 0.78rem;
+  }
+
+  .site-footer {
+    padding: 18px 16px;
+    font-size: 0.85rem;
+    gap: 12px 18px;
+  }
+}
+
+@media (max-width: 400px) {
+  .site-header {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+
+  .brand {
+    font-size: 0.9rem;
+  }
+
+  .site-nav {
+    width: 100%;
+    justify-content: flex-start;
     font-size: 0.8rem;
+    gap: 8px 12px;
+  }
+
+  main {
+    width: min(100% - 16px, 680px);
+  }
+
+  h1 {
+    font-size: 2rem;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+
+  .lead {
+    font-size: 0.94rem;
+  }
+
+  .command {
+    padding: 10px 12px;
+    font-size: 0.78rem;
+  }
+
+  .examples pre {
+    padding: 8px 10px;
+  }
+
+  code {
+    font-size: 0.78rem;
+  }
+
+  .section {
+    padding: 22px 0;
+  }
+
+  .file-grid {
+    gap: 18px;
+  }
+
+  .file-item {
+    padding-top: 10px;
   }
 }

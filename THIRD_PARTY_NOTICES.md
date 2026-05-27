@@ -2,19 +2,17 @@
 
 The yaatv source code is licensed under the MIT License in `LICENSE`.
 
-yaatv release ZIPs include a PyInstaller-built executable and third-party runtime components so users do not need a separate Python install. Each release ZIP also includes this file, `LICENSE`, and `FFMPEG_BUILD_INFO.txt`.
+yaatv release ZIPs include a PyInstaller-built executable and third-party runtime components so users do not need a separate Python install. Release ZIPs do not bundle FFmpeg or FFprobe. Each release ZIP also includes this file, `LICENSE`, and `FFMPEG_BUILD_INFO.txt`.
 
 ## FFmpeg and FFprobe
 
-The Windows release build does not bundle FFmpeg or FFprobe. When a user runs `yaatv --install-ffmpeg`, yaatv downloads a pinned GPL-enabled static Windows build from BtbN FFmpeg-Builds, verifies its SHA256 checksum, and extracts only `ffmpeg.exe` and `ffprobe.exe` into `%LOCALAPPDATA%\yaatv\bin`.
+When a user runs `yaatv --install-ffmpeg`, yaatv downloads pinned FFmpeg tools for that platform, verifies SHA256 checksums, and extracts only the `ffmpeg` and `ffprobe` executables into yaatv's app-managed bin directory.
+
+Windows and Linux use GPL-enabled static builds from BtbN FFmpeg-Builds:
 
 https://github.com/BtbN/FFmpeg-Builds
 
-The Linux release build uses GPL-enabled static FFmpeg and FFprobe builds from BtbN FFmpeg-Builds:
-
-https://github.com/BtbN/FFmpeg-Builds
-
-The macOS x64 release build uses static FFmpeg and FFprobe binaries from evermeet.cx:
+macOS x64 uses static FFmpeg and FFprobe binaries from evermeet.cx:
 
 https://evermeet.cx/ffmpeg/
 
@@ -24,7 +22,7 @@ https://ffmpeg.org/
 https://ffmpeg.org/legal.html
 https://git.ffmpeg.org/ffmpeg.git
 
-`FFMPEG_BUILD_INFO.txt` is generated during the release workflow. For Windows, it records the installer archive URL, checksum, and install path. For Linux and macOS, it records the FFmpeg/FFprobe download source, archive checksum, version, and build configuration used for that ZIP.
+`FFMPEG_BUILD_INFO.txt` is generated during the release workflow. It records the installer archive URL, checksum, extracted files, and app-managed install path for each release platform.
 
 ## Python runtime and bundled packages
 

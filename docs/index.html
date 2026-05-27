@@ -34,7 +34,7 @@
             Turn a song, ASMR session, podcast episode, mix, or voice note into an upload-ready video file. Pick an
             audio file, pick a static cover image, and yaatv makes the MP4 locally.
           </p>
-          <div class="actions" aria-label="Primary actions">
+          <div class="actions" role="group" aria-label="Primary actions">
             <a class="button button-primary" href="https://github.com/cavyion/yaatv/releases/latest">Download yaatv</a>
             <a class="button" href="#usage">See examples</a>
           </div>
@@ -116,9 +116,9 @@
 
         <p class="note">
           yaatv is a command-line app. Extract the ZIP, open PowerShell or a terminal in that folder, then run the
-          executable with <code>--version</code>. On Windows, run
-          <code>.\yaatv.exe --install-ffmpeg</code> once before non-interactive use. Interactive runs ask before
-          installing FFmpeg. The macOS build is unsigned. Apple Silicon Macs may need Rosetta.
+          executable with <code>--version</code>. Run <code>--install-ffmpeg</code> once to install the FFmpeg tools
+          yaatv uses. Interactive runs ask before installing FFmpeg. The macOS build is unsigned. Apple Silicon Macs
+          may need Rosetta.
           <a href="https://github.com/cavyion/yaatv/releases/latest">Open the latest release</a>.
         </p>
       </section>
@@ -132,7 +132,7 @@
           </p>
         </div>
 
-        <div class="examples" aria-label="Command examples">
+        <div class="examples" role="group" aria-label="Command examples">
           <pre><code>yaatv -a audio.flac -i cover.jpg</code></pre>
           <pre><code>yaatv -a episode.wav -i cover.png -o upload.mp4 --resolution 4k</code></pre>
           <pre><code>yaatv -a session.mp3 -i art.jpg --pad 2</code></pre>
@@ -157,8 +157,9 @@
         <div class="section-header">
           <h2 id="requirements-title">FFmpeg</h2>
           <p>
-            On Windows, yaatv can install the FFmpeg tools it needs with <code>yaatv --install-ffmpeg</code>. Linux and
-            macOS release ZIPs include those tools. Python installs call the FFmpeg tools on PATH.
+            Release ZIPs do not bundle FFmpeg or FFprobe. On supported x64 systems, yaatv can install the tools it
+            needs with <code>yaatv --install-ffmpeg</code>. yaatv checks its app-managed bin directory before PATH.
+            If you installed FFmpeg manually and added it to PATH, verify your setup with the commands below.
           </p>
         </div>
 

@@ -2,6 +2,7 @@ import hashlib
 import os
 import re
 import sys
+import tarfile
 import zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -21,6 +22,8 @@ from yaatv.cli import (
     default_output_path,
     find_external_tool,
     format_output_stats,
+    install_linux_ffmpeg,
+    install_macos_ffmpeg,
     install_windows_ffmpeg,
     is_high_quality_aac,
     pad_seconds,
@@ -50,6 +53,30 @@ def _ffmpeg_zip_bytes() -> bytes:
         archive.writestr("ffmpeg-build/bin/ffprobe.exe", b"ffprobe")
         archive.writestr("ffmpeg-build/bin/ffplay.exe", b"ffplay")
         archive.writestr("ffmpeg-build/doc/readme.txt", b"extra")
+    return buffer.getvalue()
+
+
+def _ffmpeg_tar_bytes() -> bytes:
+    buffer = BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:xz") as archive:
+        for name, data in {
+            "ffmpeg-build/bin/ffmpeg": b"ffmpeg",
+            "ffmpeg-build/bin/ffprobe": b"ffprobe",
+            "ffmpeg-build/bin/ffplay": b"ffplay",
+            "ffmpeg-build/doc/readme.txt": b"extra",
+        }.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, BytesIO(data))
+    return buffer.getvalue()
+
+
+def _single_tool_zip_bytes(tool_name: str, data: bytes) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(tool_name, data)
+        archive.writestr(f"__MACOSX/._{tool_name}", b"metadata")
+        archive.writestr("readme.txt", b"extra")
     return buffer.getvalue()
 
 
@@ -83,6 +110,19 @@ def test_release_workflow_checks_tag_version_before_building() -> None:
     assert "Validate release tag version" in workflow
     assert "tag_version=\"${GITHUB_REF_NAME#v}\"" in workflow
     assert "pyproject.toml" in workflow
+
+
+def test_release_workflow_does_not_bundle_ffmpeg_tools() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Prepare FFmpeg release notes" in workflow
+    assert "--add-binary" not in workflow
+    assert "vendor/bin" not in workflow
+    assert '"$executable" --install-ffmpeg' in workflow
+    assert "XDG_DATA_HOME" in workflow
+    assert "LOCALAPPDATA" in workflow
 
 
 def test_audio_and_image_are_required_for_encoding() -> None:
@@ -259,9 +299,9 @@ def test_find_ffmpeg_uses_app_cache_before_path(
 ) -> None:
     app_bin = tmp_path / "app" / "bin"
     app_bin.mkdir(parents=True)
-    cached = app_bin / "ffmpeg.exe"
+    cached = app_bin / _executable_name("ffmpeg")
     cached.write_bytes(b"")
-    path_tool = tmp_path / "path" / "ffmpeg.exe"
+    path_tool = tmp_path / "path" / _executable_name("ffmpeg")
     path_tool.parent.mkdir()
     path_tool.write_bytes(b"")
     monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
@@ -323,8 +363,8 @@ def test_resolve_ffmpeg_tools_interactive_installs_when_confirmed(
 
     def install() -> Path:
         app_bin.mkdir(parents=True)
-        (app_bin / "ffmpeg.exe").write_bytes(b"")
-        (app_bin / "ffprobe.exe").write_bytes(b"")
+        (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+        (app_bin / _executable_name("ffprobe")).write_bytes(b"")
         return app_bin
 
     monkeypatch.setattr("shutil.which", lambda _: None)
@@ -336,7 +376,24 @@ def test_resolve_ffmpeg_tools_interactive_installs_when_confirmed(
         packaged_paths=(),
         install_supported=True,
         installer=install,
-    ) == (str(app_bin / "ffmpeg.exe"), str(app_bin / "ffprobe.exe"))
+    ) == (str(app_bin / _executable_name("ffmpeg")), str(app_bin / _executable_name("ffprobe")))
+
+
+def test_run_install_ffmpeg_uses_general_installer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    called = False
+
+    def install(*, stderr: StringIO) -> Path:
+        nonlocal called
+        called = True
+        return tmp_path
+
+    monkeypatch.setattr("yaatv.cli.install_ffmpeg", install)
+
+    assert run(["--install-ffmpeg"], stderr=StringIO()) == 0
+    assert called
 
 
 def test_install_ffmpeg_rejects_checksum_failure(
@@ -403,6 +460,66 @@ def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
     assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
     assert not (install_dir / "ffplay.exe").exists()
+
+
+def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = _ffmpeg_tar_bytes()
+    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+
+    assert install_linux_ffmpeg(
+        install_dir=install_dir,
+        expected_sha256=expected_sha256,
+        stderr=StringIO(),
+    ) == install_dir
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"ffprobe"
+    assert not (install_dir / "ffplay").exists()
+    if os.name != "nt":
+        assert (install_dir / "ffmpeg").stat().st_mode & 0o111
+        assert (install_dir / "ffprobe").stat().st_mode & 0o111
+
+
+def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"ffprobe")
+    archive_by_url = {
+        "https://example.invalid/ffmpeg.zip": ffmpeg_bytes,
+        "https://example.invalid/ffprobe.zip": ffprobe_bytes,
+    }
+
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+
+    assert install_macos_ffmpeg(
+        install_dir=install_dir,
+        ffmpeg_archive_url="https://example.invalid/ffmpeg.zip",
+        ffmpeg_expected_sha256=hashlib.sha256(ffmpeg_bytes).hexdigest(),
+        ffprobe_archive_url="https://example.invalid/ffprobe.zip",
+        ffprobe_expected_sha256=hashlib.sha256(ffprobe_bytes).hexdigest(),
+        stderr=StringIO(),
+    ) == install_dir
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"ffprobe"
+    if os.name != "nt":
+        assert (install_dir / "ffmpeg").stat().st_mode & 0o111
+        assert (install_dir / "ffprobe").stat().st_mode & 0o111
 
 
 def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(

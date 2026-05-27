@@ -5,10 +5,12 @@ import hashlib
 import json
 import math
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.request
 import zipfile
@@ -54,6 +56,17 @@ WINDOWS_FFMPEG_ARCHIVE_URL = (
 )
 WINDOWS_FFMPEG_ARCHIVE_SHA256 = "a995684af075645484534ba84bc6a60320735395e1640d816f43b8d4a5b5775a"
 WINDOWS_FFMPEG_TOOLS = ("ffmpeg.exe", "ffprobe.exe")
+LINUX_FFMPEG_ARCHIVE_URL = (
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
+    "autobuild-2026-05-25-14-02/"
+    "ffmpeg-N-124633-gc79dfd29e6-linux64-gpl.tar.xz"
+)
+LINUX_FFMPEG_ARCHIVE_SHA256 = "de58117d6dd2c20e38e66febefe9732b00def28cf580195132478b64e679c8af"
+MACOS_FFMPEG_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip"
+MACOS_FFMPEG_ARCHIVE_SHA256 = "4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1"
+MACOS_FFPROBE_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffprobe-8.1.1.zip"
+MACOS_FFPROBE_ARCHIVE_SHA256 = "aeade29dee3c3844e9bcc974f4ae4b29cc4f87994177d77003a8589fa531009e"
+UNIX_FFMPEG_TOOLS = ("ffmpeg", "ffprobe")
 
 
 class YaatvError(Exception):
@@ -152,7 +165,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--install-ffmpeg",
         action="store_true",
-        help="Install FFmpeg and FFprobe into yaatv's Windows app-data bin directory",
+        help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args(argv_list)
@@ -204,7 +217,7 @@ def find_external_tool(
     if tool:
         return tool
 
-    app_install_supported = app_bin_dir is not None or os.name == "nt"
+    app_install_supported = app_bin_dir is not None or supports_app_managed_ffmpeg_install()
     raise YaatvError(missing_tool_message(name, label, app_install_supported=app_install_supported))
 
 
@@ -223,13 +236,43 @@ def missing_tool_message(name: str, label: str, *, app_install_supported: bool) 
 
 def app_managed_tool_paths(name: str, *, app_bin_dir: Path | None = None) -> tuple[Path, ...]:
     if app_bin_dir is None:
-        if os.name != "nt":
+        try:
+            app_bin_dir = app_managed_ffmpeg_bin_dir()
+        except YaatvError:
             return ()
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if not local_app_data:
-            return ()
-        app_bin_dir = Path(local_app_data) / "yaatv" / "bin"
-    return (app_bin_dir / f"{name}.exe",)
+    return (app_bin_dir / tool_executable_name(name),)
+
+
+def tool_executable_name(name: str) -> str:
+    return f"{name}.exe" if os.name == "nt" else name
+
+
+def supports_app_managed_ffmpeg_install() -> bool:
+    if not _is_x64_machine():
+        return False
+    return os.name == "nt" or sys.platform == "darwin" or sys.platform.startswith("linux")
+
+
+def app_managed_ffmpeg_bin_dir() -> Path:
+    if not _is_x64_machine():
+        raise YaatvError("yaatv --install-ffmpeg is only supported on x64 systems.")
+
+    if os.name == "nt":
+        return windows_ffmpeg_bin_dir()
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "yaatv" / "bin"
+
+    if sys.platform.startswith("linux"):
+        data_home = os.environ.get("XDG_DATA_HOME")
+        base_dir = Path(data_home).expanduser() if data_home else Path.home() / ".local" / "share"
+        return base_dir / "yaatv" / "bin"
+
+    raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
+
+
+def _is_x64_machine() -> bool:
+    return platform.machine().lower() in {"amd64", "x86_64"}
 
 
 def windows_ffmpeg_bin_dir() -> Path:
@@ -240,7 +283,7 @@ def windows_ffmpeg_bin_dir() -> Path:
 
 
 def bundled_tool_paths(name: str) -> tuple[Path, ...]:
-    executable = f"{name}.exe" if os.name == "nt" else name
+    executable = tool_executable_name(name)
     paths: list[Path] = []
 
     pyinstaller_dir = getattr(sys, "_MEIPASS", None)
@@ -268,7 +311,8 @@ def resolve_ffmpeg_tools(
             find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
         )
     except YaatvError as exc:
-        can_install = (os.name == "nt") if install_supported is None else install_supported
+        default_install_supported = app_bin_dir is not None or supports_app_managed_ffmpeg_install()
+        can_install = default_install_supported if install_supported is None else install_supported
         if not can_install or not stdin.isatty():
             raise
 
@@ -279,7 +323,7 @@ def resolve_ffmpeg_tools(
             raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.") from exc
 
         if installer is None:
-            install_windows_ffmpeg(stderr=stderr)
+            install_ffmpeg(stderr=stderr)
         else:
             installer()
 
@@ -287,6 +331,20 @@ def resolve_ffmpeg_tools(
             find_ffmpeg(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
             find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
         )
+
+
+def install_ffmpeg(
+    *,
+    install_dir: Path | None = None,
+    stderr: TextIO = sys.stderr,
+) -> Path:
+    if os.name == "nt":
+        return install_windows_ffmpeg(install_dir=install_dir, stderr=stderr)
+    if sys.platform.startswith("linux"):
+        return install_linux_ffmpeg(install_dir=install_dir, stderr=stderr)
+    if sys.platform == "darwin":
+        return install_macos_ffmpeg(install_dir=install_dir, stderr=stderr)
+    raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
 
 
 def install_windows_ffmpeg(
@@ -297,9 +355,9 @@ def install_windows_ffmpeg(
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
-        if os.name != "nt":
-            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows.")
-        install_dir = windows_ffmpeg_bin_dir()
+        if os.name != "nt" or not _is_x64_machine():
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
+        install_dir = app_managed_ffmpeg_bin_dir()
 
     with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
         temp_dir = Path(temp_name)
@@ -315,12 +373,96 @@ def install_windows_ffmpeg(
         _verify_sha256(archive_path, expected_sha256)
         _extract_windows_ffmpeg_tools(archive_path, staging_dir)
 
-        install_dir.mkdir(parents=True, exist_ok=True)
-        for tool_name in WINDOWS_FFMPEG_TOOLS:
-            shutil.move(str(staging_dir / tool_name), str(install_dir / tool_name))
+        _install_staged_tools(staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False)
 
     print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
     return install_dir
+
+
+def install_linux_ffmpeg(
+    *,
+    install_dir: Path | None = None,
+    archive_url: str = LINUX_FFMPEG_ARCHIVE_URL,
+    expected_sha256: str = LINUX_FFMPEG_ARCHIVE_SHA256,
+    stderr: TextIO = sys.stderr,
+) -> Path:
+    if install_dir is None:
+        if not sys.platform.startswith("linux") or not _is_x64_machine():
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
+        install_dir = app_managed_ffmpeg_bin_dir()
+
+    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
+        temp_dir = Path(temp_name)
+        archive_path = temp_dir / "ffmpeg.tar.xz"
+        staging_dir = temp_dir / "bin"
+
+        print(f"Downloading FFmpeg from {archive_url}", file=stderr)
+        try:
+            _download_url(archive_url, archive_path)
+        except OSError as exc:
+            raise YaatvError(f"Could not download FFmpeg: {exc}") from exc
+
+        _verify_sha256(archive_path, expected_sha256)
+        _extract_tar_ffmpeg_tools(archive_path, staging_dir)
+        _install_staged_tools(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True)
+
+    print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
+    return install_dir
+
+
+def install_macos_ffmpeg(
+    *,
+    install_dir: Path | None = None,
+    ffmpeg_archive_url: str = MACOS_FFMPEG_ARCHIVE_URL,
+    ffmpeg_expected_sha256: str = MACOS_FFMPEG_ARCHIVE_SHA256,
+    ffprobe_archive_url: str = MACOS_FFPROBE_ARCHIVE_URL,
+    ffprobe_expected_sha256: str = MACOS_FFPROBE_ARCHIVE_SHA256,
+    stderr: TextIO = sys.stderr,
+) -> Path:
+    if install_dir is None:
+        if sys.platform != "darwin" or not _is_x64_machine():
+            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64.")
+        install_dir = app_managed_ffmpeg_bin_dir()
+
+    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
+        temp_dir = Path(temp_name)
+        staging_dir = temp_dir / "bin"
+        downloads = (
+            (ffmpeg_archive_url, temp_dir / "ffmpeg.zip", ffmpeg_expected_sha256, "ffmpeg"),
+            (ffprobe_archive_url, temp_dir / "ffprobe.zip", ffprobe_expected_sha256, "ffprobe"),
+        )
+
+        for archive_url, archive_path, expected_sha256, tool_name in downloads:
+            print(f"Downloading {tool_name} from {archive_url}", file=stderr)
+            try:
+                _download_url(archive_url, archive_path)
+            except OSError as exc:
+                raise YaatvError(f"Could not download {tool_name}: {exc}") from exc
+
+            _verify_sha256(archive_path, expected_sha256)
+            _extract_zip_tool(archive_path, staging_dir, tool_name)
+
+        _install_staged_tools(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True)
+
+    print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
+    return install_dir
+
+
+def _install_staged_tools(
+    staging_dir: Path,
+    install_dir: Path,
+    tool_names: Iterable[str],
+    *,
+    executable: bool,
+) -> None:
+    install_dir.mkdir(parents=True, exist_ok=True)
+    for tool_name in tool_names:
+        target = install_dir / tool_name
+        if target.exists():
+            target.unlink()
+        shutil.move(str(staging_dir / tool_name), str(target))
+        if executable:
+            target.chmod(0o755)
 
 
 def _download_url(url: str, destination: Path) -> None:
@@ -370,6 +512,67 @@ def _find_ffmpeg_zip_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile
     if not candidates:
         raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
     return sorted(candidates, key=lambda member: member.filename)[0]
+
+
+def _extract_tar_ffmpeg_tools(archive_path: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        with tarfile.open(archive_path) as archive:
+            for tool_name in UNIX_FFMPEG_TOOLS:
+                member = _find_ffmpeg_tar_member(archive, tool_name)
+                source = archive.extractfile(member)
+                if source is None:
+                    raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
+                with source:
+                    with (destination / tool_name).open("wb") as output:
+                        shutil.copyfileobj(source, output)
+    except tarfile.TarError as exc:
+        raise YaatvError("FFmpeg archive is not a valid tar file.") from exc
+
+
+def _find_ffmpeg_tar_member(archive: tarfile.TarFile, tool_name: str) -> tarfile.TarInfo:
+    normalized_tool = tool_name.lower()
+    candidates = []
+    for member in archive.getmembers():
+        normalized_name = member.name.replace("\\", "/").lower()
+        if not member.isfile():
+            continue
+        if normalized_name != f"bin/{normalized_tool}" and not normalized_name.endswith(f"/bin/{normalized_tool}"):
+            continue
+        candidates.append(member)
+
+    if not candidates:
+        raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
+    return sorted(candidates, key=lambda member: member.name)[0]
+
+
+def _extract_zip_tool(archive_path: Path, destination: Path, tool_name: str) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            member = _find_zip_tool_member(archive, tool_name)
+            with archive.open(member) as source:
+                with (destination / tool_name).open("wb") as output:
+                    shutil.copyfileobj(source, output)
+    except zipfile.BadZipFile as exc:
+        raise YaatvError(f"{tool_name} archive is not a valid ZIP file.") from exc
+
+
+def _find_zip_tool_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.ZipInfo:
+    normalized_tool = tool_name.lower()
+    candidates = []
+    for member in archive.infolist():
+        normalized_name = member.filename.replace("\\", "/").lower()
+        basename = normalized_name.rsplit("/", 1)[-1]
+        if member.is_dir() or normalized_name.startswith("__macosx/"):
+            continue
+        if basename != normalized_tool:
+            continue
+        candidates.append(member)
+
+    if not candidates:
+        raise YaatvError(f"{tool_name} archive did not contain {tool_name}.")
+    return sorted(candidates, key=lambda member: (member.filename.count("/"), member.filename))[0]
 
 
 def validate_image(path: Path) -> tuple[int, int]:
@@ -685,8 +888,8 @@ def run_ffmpeg(command: Sequence[str]) -> int:
         completed = subprocess.run(command, check=False)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFmpeg was not found. Run yaatv --install-ffmpeg on Windows, "
-            f"or install it from {FFMPEG_DOWNLOAD_PAGE}"
+            "FFmpeg was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
+            f"or install it from {FFMPEG_DOWNLOAD_PAGE} and make sure ffmpeg is on PATH."
         ) from exc
     return completed.returncode
 
@@ -705,8 +908,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         completed = subprocess.run(command, check=False, capture_output=True, text=True)
     except FileNotFoundError as exc:
         raise YaatvError(
-            "FFprobe was not found. Run yaatv --install-ffmpeg on Windows, "
-            f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE}"
+            "FFprobe was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
+            f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE} and make sure ffprobe is on PATH."
         ) from exc
 
     if completed.returncode != 0:
@@ -858,7 +1061,7 @@ def run(
 ) -> int:
     args = parse_args(argv)
     if args.install_ffmpeg:
-        install_windows_ffmpeg(stderr=stderr)
+        install_ffmpeg(stderr=stderr)
         return 0
 
     if args.audio is None:
