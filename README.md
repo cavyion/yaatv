@@ -1,4 +1,10 @@
-# yaatv
+#
+
+![yaatv](docs/docs-assets/yaatv.svg)
+
+![License](https://img.shields.io/github/license/cavyion/yaatv)
+![Release](https://img.shields.io/github/v/release/cavyion/yaatv)
+![Python](https://img.shields.io/badge/python-3.10+-blue)
 
 yaatv turns audio and cover art into a YouTube-ready video without opening a video editor.
 
@@ -11,6 +17,12 @@ yaatv -a audio.flac -i cover.jpg -o upload.mp4
 ```
 
 Give it audio. Give it artwork. Get a video you can upload.
+
+## Recommendations
+
+- Use a cover image at least as large as your output resolution (1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k).
+- Square album art works well and is the most common format. 16:9 images fill the entire frame without bars.
+- Use WAV, FLAC, or high-bitrate AAC for the best audio quality.
 
 Website and docs: <https://yaatv.org>
 
@@ -106,12 +118,9 @@ Audio:
 
 Cover image:
 
-- Use at least 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k.
-- Larger square artwork, such as 3000x3000, can avoid upscaling for 4k output.
-- Use JPG, PNG, or static WebP. GIF and animated WebP files are rejected.
-- Square images fill the whole frame. Non-square images get black bars on the sides.
-
-yaatv warns you if your source is smaller than the output resolution. Pass `--no-warn` to hide those warnings.
+- Use an image at least as large as your output resolution: 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k. Images smaller than the output get upscaled and may look soft.
+- Square album art gets black bars on the left and right to fill the 16:9 frame. 16:9 images fill the entire frame. Portrait images get black bars on the top and bottom.
+- Use JPG, PNG, or static WebP. Animated images are rejected.
 
 ## Output
 
@@ -121,7 +130,9 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 - MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
 - Audio is kept in an upload-friendly format. High-quality AAC can be copied directly when no padding is needed.
 - Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
+- Video is 1fps. The audio plays at normal speed; the image does not animate.
 - Video is encoded for broad playback compatibility and YouTube uploads.
+- Typical MP4 output is 5 to 30 MB depending on audio length.
 - Completed files are checked after encoding and summarized before yaatv exits.
 - Existing output files require confirmation before overwrite.
 

@@ -361,9 +361,9 @@ def resolve_ffmpeg_tools(
             raise
 
         print(str(exc), file=stderr)
-        print("Install FFmpeg for yaatv now? [y/N] ", end="", file=stderr, flush=True)
+        print("Install FFmpeg for yaatv now? [Y/n] ", end="", file=stderr, flush=True)
         answer = stdin.readline().strip().lower()
-        if answer not in {"y", "yes"}:
+        if answer in {"n", "no"}:
             raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.") from exc
 
         if installer is None:
