@@ -16,6 +16,10 @@ macOS x64 uses static FFmpeg and FFprobe binaries from evermeet.cx:
 
 https://evermeet.cx/ffmpeg/
 
+macOS arm64 uses static FFmpeg and FFprobe binaries from ffmpeg.martin-riedl.de:
+
+https://ffmpeg.martin-riedl.de/
+
 FFmpeg is a separate project from yaatv. FFmpeg source code and license information are available from:
 
 https://ffmpeg.org/

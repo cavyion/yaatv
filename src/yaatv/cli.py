@@ -36,6 +36,27 @@ COPY_AAC_SAMPLE_RATE = 48_000
 LOW_BITRATE_WARNING = 256_000
 TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
+KNOWN_AUDIO_EXTENSIONS = {
+    ".aac",
+    ".aiff",
+    ".alac",
+    ".flac",
+    ".m4a",
+    ".mp3",
+    ".ogg",
+    ".opus",
+    ".wav",
+    ".wma",
+}
+KNOWN_IMAGE_EXTENSIONS = {
+    ".bmp",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_FILENAMES = {
     "CON",
@@ -66,6 +87,14 @@ MACOS_FFMPEG_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip"
 MACOS_FFMPEG_ARCHIVE_SHA256 = "4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1"
 MACOS_FFPROBE_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffprobe-8.1.1.zip"
 MACOS_FFPROBE_ARCHIVE_SHA256 = "aeade29dee3c3844e9bcc974f4ae4b29cc4f87994177d77003a8589fa531009e"
+MACOS_ARM64_FFMPEG_ARCHIVE_URL = (
+    "https://ffmpeg.martin-riedl.de/download/macos/arm64/1778761665_8.1.1/ffmpeg.zip"
+)
+MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 = "a05b1a47bb3ac89a95a55eec713f8bbb347051bb07015f3b7d08fb62ed81a21e"
+MACOS_ARM64_FFPROBE_ARCHIVE_URL = (
+    "https://ffmpeg.martin-riedl.de/download/macos/arm64/1778761665_8.1.1/ffprobe.zip"
+)
+MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 = "135e70d2518beeb568183952dbc4bdeca1628dd49a7376d57e6b27dbc57d209f"
 UNIX_FFMPEG_TOOLS = ("ffmpeg", "ffprobe")
 
 
@@ -163,6 +192,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Suppress low source quality warnings",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the FFmpeg command without creating an output file",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show FFmpeg progress output while encoding",
+    )
+    parser.add_argument(
         "--install-ffmpeg",
         action="store_true",
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
@@ -248,22 +287,27 @@ def tool_executable_name(name: str) -> str:
 
 
 def supports_app_managed_ffmpeg_install() -> bool:
-    if not _is_x64_machine():
-        return False
-    return os.name == "nt" or sys.platform == "darwin" or sys.platform.startswith("linux")
+    if os.name == "nt" or sys.platform.startswith("linux"):
+        return _is_x64_machine()
+    if sys.platform == "darwin":
+        return _is_x64_machine() or _is_arm64_machine()
+    return False
 
 
 def app_managed_ffmpeg_bin_dir() -> Path:
-    if not _is_x64_machine():
-        raise YaatvError("yaatv --install-ffmpeg is only supported on x64 systems.")
-
     if os.name == "nt":
+        if not _is_x64_machine():
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
         return windows_ffmpeg_bin_dir()
 
     if sys.platform == "darwin":
+        if not (_is_x64_machine() or _is_arm64_machine()):
+            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
         return Path.home() / "Library" / "Application Support" / "yaatv" / "bin"
 
     if sys.platform.startswith("linux"):
+        if not _is_x64_machine():
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
         data_home = os.environ.get("XDG_DATA_HOME")
         base_dir = Path(data_home).expanduser() if data_home else Path.home() / ".local" / "share"
         return base_dir / "yaatv" / "bin"
@@ -273,6 +317,10 @@ def app_managed_ffmpeg_bin_dir() -> Path:
 
 def _is_x64_machine() -> bool:
     return platform.machine().lower() in {"amd64", "x86_64"}
+
+
+def _is_arm64_machine() -> bool:
+    return platform.machine().lower() in {"arm64", "aarch64"}
 
 
 def windows_ffmpeg_bin_dir() -> Path:
@@ -413,16 +461,29 @@ def install_linux_ffmpeg(
 def install_macos_ffmpeg(
     *,
     install_dir: Path | None = None,
-    ffmpeg_archive_url: str = MACOS_FFMPEG_ARCHIVE_URL,
-    ffmpeg_expected_sha256: str = MACOS_FFMPEG_ARCHIVE_SHA256,
-    ffprobe_archive_url: str = MACOS_FFPROBE_ARCHIVE_URL,
-    ffprobe_expected_sha256: str = MACOS_FFPROBE_ARCHIVE_SHA256,
+    ffmpeg_archive_url: str | None = None,
+    ffmpeg_expected_sha256: str | None = None,
+    ffprobe_archive_url: str | None = None,
+    ffprobe_expected_sha256: str | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
-        if sys.platform != "darwin" or not _is_x64_machine():
-            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64.")
+        if sys.platform != "darwin" or not (_is_x64_machine() or _is_arm64_machine()):
+            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
         install_dir = app_managed_ffmpeg_bin_dir()
+
+    if ffmpeg_archive_url is None:
+        ffmpeg_archive_url = MACOS_ARM64_FFMPEG_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_URL
+    if ffmpeg_expected_sha256 is None:
+        ffmpeg_expected_sha256 = (
+            MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_SHA256
+        )
+    if ffprobe_archive_url is None:
+        ffprobe_archive_url = MACOS_ARM64_FFPROBE_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_URL
+    if ffprobe_expected_sha256 is None:
+        ffprobe_expected_sha256 = (
+            MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_SHA256
+        )
 
     with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
         temp_dir = Path(temp_name)
@@ -792,9 +853,19 @@ def quality_warnings(
     scale_factor = min(target_width / image_width, target_height / image_height)
     if scale_factor > 1:
         warnings.append(
-            f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for {target_width}x{target_height}"
+            f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
+            f"{target_width}x{target_height}. Consider using an image at least {target_width}x{target_height}"
         )
 
+    return warnings
+
+
+def input_format_warnings(audio_path: Path, image_path: Path) -> list[str]:
+    warnings: list[str] = []
+    if audio_path.suffix.lower() not in KNOWN_AUDIO_EXTENSIONS:
+        warnings.append(f"audio file extension is unusual: {audio_path.suffix or '(none)'}")
+    if image_path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS:
+        warnings.append(f"cover image extension is unusual: {image_path.suffix or '(none)'}")
     return warnings
 
 
@@ -933,9 +1004,13 @@ def normalize_output_path(path: Path) -> Path:
     return output_path
 
 
-def run_ffmpeg(command: Sequence[str]) -> int:
+def quote_command(command: Sequence[str]) -> str:
+    return subprocess.list2cmdline([str(part) for part in command])
+
+
+def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> int:
     try:
-        completed = subprocess.run(command, check=False)
+        completed = subprocess.run(command, check=False, stderr=None if verbose else subprocess.PIPE, text=True)
     except FileNotFoundError as exc:
         raise YaatvError(
             "FFmpeg was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
@@ -1145,7 +1220,10 @@ def run(
     is_prores = output_path.suffix.lower() == ".mov"
 
     if not args.no_warn:
-        for warning in quality_warnings(metadata, image_size, target_size):
+        for warning in [
+            *input_format_warnings(audio_path, image_path),
+            *quality_warnings(metadata, image_size, target_size),
+        ]:
             print(f"warning: {warning}", file=stderr)
     if is_prores:
         print("note: .mov output uses ProRes 422; file sizes will be very large", file=stderr)
@@ -1161,8 +1239,17 @@ def run(
         output_duration=output_duration,
         is_prores=is_prores,
     )
-    exit_code = run_ffmpeg(command)
+    if args.dry_run:
+        print(quote_command(command), file=stderr)
+        return 0
+
+    exit_code = run_ffmpeg(command, verbose=args.verbose)
     if exit_code != 0:
+        if not args.verbose:
+            print(
+                f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
+                file=stderr,
+            )
         return exit_code
 
     stats = probe_output(ffprobe, output_path)

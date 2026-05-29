@@ -105,7 +105,7 @@ Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README pu
 
 ### Tags
 
-Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.4.0`, tag that commit as `v0.4.0`. This keeps the release history clean and the CI build trigger working.
+Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.5.0`, tag that commit as `v0.5.0`. This keeps the release history clean and the CI build trigger working.
 
 ## Coding style
 

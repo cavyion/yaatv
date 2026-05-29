@@ -118,7 +118,7 @@
           yaatv is a command-line app. Extract the ZIP, open PowerShell or a terminal in that folder, then run the
           executable with <code>--version</code>. Run <code>--install-ffmpeg</code> once to install the FFmpeg tools
           yaatv uses. Interactive runs ask before installing FFmpeg. The macOS build is unsigned. Apple Silicon Macs
-          may need Rosetta.
+          may need Rosetta to run yaatv, and <code>--install-ffmpeg</code> supports Apple Silicon FFmpeg tools.
           <a href="https://github.com/cavyion/yaatv/releases/latest">Open the latest release</a>.
         </p>
       </section>
@@ -159,7 +159,7 @@
         <div class="section-header">
           <h2 id="requirements-title">FFmpeg</h2>
           <p>
-            Release ZIPs do not bundle FFmpeg or FFprobe. On supported x64 systems, yaatv can install the tools it
+            Release ZIPs do not bundle FFmpeg or FFprobe. On supported systems, yaatv can install the tools it
             needs with <code>yaatv --install-ffmpeg</code>. yaatv checks its app-managed bin directory before PATH.
             If you installed FFmpeg manually and added it to PATH, verify your setup with the commands below.
           </p>

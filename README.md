@@ -62,7 +62,7 @@ chmod +x ./yaatv-macos
 ./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
 ```
 
-The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta installed. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
+The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta installed. `--install-ffmpeg` supports both macOS x64 and Apple Silicon. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
 
 ```sh
 xattr -d com.apple.quarantine ./yaatv-macos
@@ -90,6 +90,8 @@ Flags:
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
+- `--dry-run`: print the FFmpeg command without creating an output file
+- `--verbose`: show FFmpeg progress output while encoding
 - `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed bin directory
 
 ## Source files
@@ -123,7 +125,7 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 - Completed files are checked after encoding and summarized before yaatv exits.
 - Existing output files require confirmation before overwrite.
 
-Low-quality source audio and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
+Low-quality source audio, unusual file extensions, and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
 
 `--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
 
@@ -138,7 +140,7 @@ yaatv --version
 
 Python 3.10 or newer is required.
 
-Python installs do not bundle FFmpeg. On supported x64 systems, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. If you use your own FFmpeg install instead, make sure both commands work:
+Python installs do not bundle FFmpeg. On supported systems, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. If you use your own FFmpeg install instead, make sure both commands work:
 
 ```sh
 ffmpeg -version
@@ -178,7 +180,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.4.0
+git tag v0.5.0
 git push origin main --tags
 ```
 

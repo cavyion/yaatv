@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -12,6 +13,8 @@ from PIL import Image
 
 from yaatv import __version__
 from yaatv.cli import (
+    MACOS_ARM64_FFMPEG_ARCHIVE_URL,
+    MACOS_ARM64_FFPROBE_ARCHIVE_URL,
     AudioMetadata,
     OutputStats,
     YaatvError,
@@ -22,15 +25,19 @@ from yaatv.cli import (
     default_output_path,
     find_external_tool,
     format_output_stats,
+    input_format_warnings,
     install_linux_ffmpeg,
     install_macos_ffmpeg,
     install_windows_ffmpeg,
     is_high_quality_aac,
+    normalize_output_path,
     pad_seconds,
+    probe_output,
     quality_warnings,
     read_audio_metadata,
     resolve_ffmpeg_tools,
     run,
+    run_ffmpeg,
     sanitize_filename,
     validate_image,
     verify_output_stats,
@@ -185,6 +192,7 @@ def test_command_uses_shortest_without_duration_cap() -> None:
         target_size=(1920, 1080),
         audio_plan=plan,
         overwrite=False,
+        output_duration=None,
     )
 
     assert "-shortest" in command
@@ -247,6 +255,28 @@ def test_low_bitrate_warning_is_reported() -> None:
     )
 
     assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
+
+
+def test_small_cover_warning_recommends_target_size() -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec="mp3", bitrate=320_000, sample_rate=48_000, artist=None, title=None),
+        image_size=(640, 640),
+        target_size=(1920, 1080),
+    )
+
+    assert warnings == [
+        "cover image is 640x640; FFmpeg will upscale it for 1920x1080. "
+        "Consider using an image at least 1920x1080"
+    ]
+
+
+def test_unusual_input_extensions_warn_before_encoding() -> None:
+    assert input_format_warnings(Path("track.audio"), Path("cover.picture")) == [
+        "audio file extension is unusual: .audio",
+        "cover image extension is unusual: .picture",
+    ]
+
+    assert input_format_warnings(Path("track.flac"), Path("cover.png")) == []
 
 
 def test_default_output_prefers_artist_and_title() -> None:
@@ -396,6 +426,46 @@ def test_run_install_ffmpeg_uses_general_installer(
     assert called
 
 
+def test_run_dry_run_prints_command_without_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    stderr = StringIO()
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert "ffmpeg" in stderr.getvalue()
+    assert str(output_path) in stderr.getvalue()
+    assert not output_path.exists()
+
+
 def test_install_ffmpeg_rejects_checksum_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -522,6 +592,35 @@ def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
         assert (install_dir / "ffprobe").stat().st_mode & 0o111
 
 
+def test_install_macos_ffmpeg_uses_arm64_downloads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"arm64 ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"arm64 ffprobe")
+    archive_by_url = {
+        MACOS_ARM64_FFMPEG_ARCHIVE_URL: ffmpeg_bytes,
+        MACOS_ARM64_FFPROBE_ARCHIVE_URL: ffprobe_bytes,
+    }
+
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
+
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+
+    assert install_macos_ffmpeg(
+        install_dir=install_dir,
+        ffmpeg_expected_sha256=hashlib.sha256(ffmpeg_bytes).hexdigest(),
+        ffprobe_expected_sha256=hashlib.sha256(ffprobe_bytes).hexdigest(),
+        stderr=StringIO(),
+    ) == install_dir
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"arm64 ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"arm64 ffprobe"
+
+
 def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -576,6 +675,62 @@ def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> Non
 
     with pytest.raises(YaatvError, match="without confirmation"):
         confirm_overwrite(output, stdin=StringIO(), stderr=StringIO())
+
+
+def test_normalize_output_path_rejects_missing_directory(tmp_path: Path) -> None:
+    with pytest.raises(YaatvError, match="Output directory does not exist"):
+        normalize_output_path(tmp_path / "missing" / "out.mp4")
+
+
+def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], *, check: bool, stderr: object, text: bool) -> object:
+        captured.update({"command": command, "check": check, "stderr": stderr, "text": text})
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    assert run_ffmpeg(["ffmpeg", "-version"]) == 0
+    assert captured == {
+        "command": ["ffmpeg", "-version"],
+        "check": False,
+        "stderr": subprocess.PIPE,
+        "text": True,
+    }
+
+    assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
+    assert captured["stderr"] is None
+
+
+def test_probe_output_reports_missing_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_args: object, **_kwargs: object) -> object:
+        raise FileNotFoundError
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="FFprobe was not found"):
+        probe_output("ffprobe", Path("out.mp4"))
+
+
+def test_probe_output_reports_ffprobe_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="bad output")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="bad output"):
+        probe_output("ffprobe", Path("out.mp4"))
+
+
+def test_probe_output_reports_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="{", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="Could not parse FFprobe output"):
+        probe_output("ffprobe", Path("out.mp4"))
 
 
 def test_prores_command_uses_correct_encoder_settings() -> None:
