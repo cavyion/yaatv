@@ -97,7 +97,10 @@ yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
 Flags:
 
 - `-a`, `--audio`: audio file, required unless using `--install-ffmpeg`
-- `-i`, `--image`: cover image, required unless using `--install-ffmpeg`
+- `-i`, `--image`: cover image, required unless using `--install-ffmpeg` or color-only output
+- `-b`, `--bg-image`: background image to place behind the cover image
+- `--bg-color`: background color as `#RRGGBB` or a named CSS color, default is `black`
+- `--bg-blur`: use a blurred copy of the cover image as the background
 - `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available; `.mov` writes ProRes MOV
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
@@ -122,6 +125,16 @@ Cover image:
 - Square album art gets black bars on the left and right to fill the 16:9 frame. 16:9 images fill the entire frame. Portrait images get black bars on the top and bottom.
 - Use JPG, PNG, or static WebP. Animated images are rejected.
 
+Visual background:
+
+- By default, yaatv pads the cover image with black.
+- Use `--bg-color` to choose the pad color behind the cover image.
+- Use `--bg-image` to fill the frame with a second static image and center the cover image on top.
+- Use `--bg-blur` to fill the frame with a blurred copy of the cover image.
+- If `--bg-image` and `--bg-blur` are both set, `--bg-image` is used.
+- If `--bg-color` is set with `--bg-image` or `--bg-blur`, the image background or blurred background is used.
+- You can omit `-i` only when `--bg-color` is explicitly set to a non-black value. That creates a solid-color video.
+
 ## Output
 
 yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv creates a ProRes MOV instead.
@@ -129,7 +142,7 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 - MP4 output uses H.264 video at CRF 16, preset `slow`, yuv420p pixel format, and `+faststart`.
 - MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
 - Audio is kept in an upload-friendly format. High-quality AAC can be copied directly when no padding is needed.
-- Cover images keep their aspect ratio. yaatv adds black bars instead of stretching.
+- Cover images keep their aspect ratio. yaatv adds a background instead of stretching.
 - Video is 1fps. The audio plays at normal speed; the image does not animate.
 - Video is encoded for broad playback compatibility and YouTube uploads.
 - Typical MP4 output is 5 to 30 MB depending on audio length.
@@ -191,7 +204,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.1
+git tag v0.5.2
 git push origin main --tags
 ```
 

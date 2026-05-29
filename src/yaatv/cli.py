@@ -21,7 +21,7 @@ from typing import Any, TextIO
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageColor, UnidentifiedImageError
 
 from . import __version__
 
@@ -36,6 +36,7 @@ COPY_AAC_SAMPLE_RATE = 48_000
 LOW_BITRATE_WARNING = 256_000
 TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
+DEFAULT_BACKGROUND_COLOR = "black"
 KNOWN_AUDIO_EXTENSIONS = {
     ".aac",
     ".aiff",
@@ -145,6 +146,34 @@ def pad_seconds(value: str) -> float:
     return seconds
 
 
+def background_color(value: str) -> str:
+    text = value.strip()
+    if not text:
+        raise argparse.ArgumentTypeError("--bg-color must not be empty")
+
+    try:
+        red, green, blue = ImageColor.getrgb(text)[:3]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--bg-color must be a valid #RRGGBB hex color or named CSS color: {value}"
+        ) from exc
+
+    normalized = f"0x{red:02x}{green:02x}{blue:02x}"
+    if text.startswith("#"):
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", text):
+            raise argparse.ArgumentTypeError(f"--bg-color must use #RRGGBB hex format: {value}")
+        return normalized
+
+    if re.fullmatch(r"[A-Za-z]+", text):
+        return DEFAULT_BACKGROUND_COLOR if normalized == "0x000000" else normalized
+
+    raise argparse.ArgumentTypeError(f"--bg-color must be a valid #RRGGBB hex color or named CSS color: {value}")
+
+
+def is_default_background_color(value: str) -> bool:
+    return value == DEFAULT_BACKGROUND_COLOR or value == "0x000000"
+
+
 def format_seconds(seconds: float) -> str:
     seconds = float(seconds)
     return str(int(seconds)) if seconds.is_integer() else f"{seconds:g}"
@@ -154,7 +183,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     argv_list = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="yaatv",
-        description="Combine an audio file and cover image into a YouTube-optimized video.",
+        description="Combine an audio file and cover image into a YouTube-ready video.",
     )
     parser.add_argument(
         "-a",
@@ -166,7 +195,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "-i",
         "--image",
         type=Path,
-        help="Path to cover image (required unless using --install-ffmpeg)",
+        help="Path to cover image (required unless using --install-ffmpeg or color-only output)",
+    )
+    parser.add_argument(
+        "-b",
+        "--bg-image",
+        type=Path,
+        help="Path to background image",
+    )
+    parser.add_argument(
+        "--bg-color",
+        default=DEFAULT_BACKGROUND_COLOR,
+        type=background_color,
+        help="Background color as #RRGGBB or a named CSS color",
+    )
+    parser.add_argument(
+        "--bg-blur",
+        action="store_true",
+        help="Use a blurred copy of the cover image as the background",
     )
     parser.add_argument(
         "-o",
@@ -207,7 +253,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    return parser.parse_args(argv_list)
+    args = parser.parse_args(argv_list)
+    args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
+    return args
 
 
 def require_file(path: Path, label: str) -> Path:
@@ -632,17 +680,17 @@ def _find_zip_tool_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.Z
     return sorted(candidates, key=lambda member: (member.filename.count("/"), member.filename))[0]
 
 
-def validate_image(path: Path) -> tuple[int, int]:
+def validate_image(path: Path, label: str = "Cover image") -> tuple[int, int]:
     try:
         with Image.open(path) as image:
             width, height = image.size
             if getattr(image, "is_animated", False) or getattr(image, "n_frames", 1) > 1:
-                raise YaatvError(f"Cover image must be a static image: {path}")
+                raise YaatvError(f"{label} must be a static image: {path}")
             image.verify()
     except YaatvError:
         raise
     except (UnidentifiedImageError, OSError) as exc:
-        raise YaatvError(f"Could not read cover image: {path}") from exc
+        raise YaatvError(f"Could not read {label.lower()}: {path}") from exc
 
     return width, height
 
@@ -856,32 +904,196 @@ def quality_warnings(
     return warnings
 
 
-def input_format_warnings(audio_path: Path, image_path: Path) -> list[str]:
+def input_format_warnings(audio_path: Path, image_path: Path | None, bg_image_path: Path | None = None) -> list[str]:
     warnings: list[str] = []
     if audio_path.suffix.lower() not in KNOWN_AUDIO_EXTENSIONS:
         warnings.append(f"audio file extension is unusual: {audio_path.suffix or '(none)'}")
-    if image_path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS:
+    if image_path is not None and image_path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS:
         warnings.append(f"cover image extension is unusual: {image_path.suffix or '(none)'}")
+    if bg_image_path is not None and bg_image_path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS:
+        warnings.append(f"background image extension is unusual: {bg_image_path.suffix or '(none)'}")
     return warnings
 
 
 def build_ffmpeg_command(
     ffmpeg: str,
     audio_path: Path,
-    image_path: Path,
+    image_path: Path | None,
     output_path: Path,
     target_size: tuple[int, int],
     audio_plan: AudioPlan,
     overwrite: bool,
     output_duration: float | None = None,
     is_prores: bool = False,
+    bg_image_path: Path | None = None,
+    bg_color: str = DEFAULT_BACKGROUND_COLOR,
+    bg_blur: bool = False,
 ) -> list[str]:
     width, height = target_size
+    video_format = "yuv422p10le" if is_prores else "yuv420p"
+    video_tail = (
+        f"format={video_format},"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+    video_codec_args = (
+        (
+            "-c:v",
+            "prores_ks",
+            "-profile:v",
+            "2",
+            "-pix_fmt",
+            "yuv422p10le",
+            "-vendor",
+            "apl0",
+        )
+        if is_prores
+        else (
+            "-c:v",
+            "libx264",
+            "-preset",
+            "slow",
+            "-crf",
+            "16",
+            "-pix_fmt",
+            "yuv420p",
+        )
+    )
+    output_format_args = ("-f", "mov") if is_prores else ()
+    faststart_args = () if is_prores else ("-movflags", "+faststart")
+
+    if image_path is None:
+        color_source = f"color=c={bg_color}:s={width}x{height}"
+        if output_duration is not None:
+            color_source = f"{color_source}:d={format_seconds(output_duration)}"
+        return [
+            ffmpeg,
+            "-y" if overwrite else "-n",
+            "-i",
+            str(audio_path),
+            "-f",
+            "lavfi",
+            "-i",
+            color_source,
+            "-map",
+            "1:v:0",
+            "-map",
+            "0:a:0",
+            *video_codec_args,
+            "-color_range",
+            "tv",
+            "-colorspace",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            *audio_plan.codec_args,
+            *audio_plan.filter_args,
+            *(("-shortest",) if output_duration is None else ()),
+            *faststart_args,
+            "-vf",
+            f"fps=fps=1:start_time=0,{video_tail}",
+            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
+            *output_format_args,
+            str(output_path),
+        ]
+
+    if bg_image_path is not None:
+        video_filter = (
+            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+            f"crop={width}:{height}[bg];"
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
+        )
+        return [
+            ffmpeg,
+            "-y" if overwrite else "-n",
+            "-loop",
+            "1",
+            "-framerate",
+            "1",
+            "-i",
+            str(bg_image_path),
+            "-loop",
+            "1",
+            "-framerate",
+            "1",
+            "-i",
+            str(image_path),
+            "-i",
+            str(audio_path),
+            "-filter_complex",
+            video_filter,
+            "-map",
+            "[v]",
+            "-map",
+            "2:a:0",
+            *video_codec_args,
+            "-color_range",
+            "tv",
+            "-colorspace",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            *audio_plan.codec_args,
+            *audio_plan.filter_args,
+            *(("-shortest",) if output_duration is None else ()),
+            *faststart_args,
+            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
+            *output_format_args,
+            str(output_path),
+        ]
+
+    if bg_blur:
+        video_filter = (
+            "[0:v]split[s1][s2];"
+            f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},boxblur=20:5[bg];"
+            f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
+        )
+        return [
+            ffmpeg,
+            "-y" if overwrite else "-n",
+            "-loop",
+            "1",
+            "-framerate",
+            "1",
+            "-i",
+            str(image_path),
+            "-i",
+            str(audio_path),
+            "-filter_complex",
+            video_filter,
+            "-map",
+            "[v]",
+            "-map",
+            "1:a:0",
+            *video_codec_args,
+            "-color_range",
+            "tv",
+            "-colorspace",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            *audio_plan.codec_args,
+            *audio_plan.filter_args,
+            *(("-shortest",) if output_duration is None else ()),
+            *faststart_args,
+            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
+            *output_format_args,
+            str(output_path),
+        ]
+
     if is_prores:
         video_filter = (
             f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
-            "format=yuv422p10le,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
+            f"format={video_format},"
             "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
         )
         return [
@@ -928,8 +1140,8 @@ def build_ffmpeg_command(
 
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
-        "format=yuv420p,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
+        f"format={video_format},"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
 
@@ -1199,14 +1411,22 @@ def run(
 
     if args.audio is None:
         raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
-    if args.image is None:
+    color_only = args.image is None and args.bg_color_explicit and not is_default_background_color(args.bg_color)
+    if args.image is None and args.bg_blur:
+        raise YaatvError("--bg-blur requires a cover image. Use -i/--image to choose one.")
+    if args.image is None and args.bg_image is not None:
+        raise YaatvError("--bg-image requires a cover image. Use -i/--image to choose one.")
+    if args.image is None and not color_only:
         raise YaatvError("Cover image is required. Use -i/--image to choose one.")
 
     audio_path = require_file(args.audio, "Audio file")
-    image_path = require_file(args.image, "Cover image")
+    image_path = require_file(args.image, "Cover image") if args.image is not None else None
+    bg_image_path = require_file(args.bg_image, "Background image") if args.bg_image is not None else None
     ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
     metadata = read_audio_metadata(audio_path)
-    image_size = validate_image(image_path)
+    image_size = validate_image(image_path) if image_path is not None else None
+    if bg_image_path is not None:
+        validate_image(bg_image_path, "Background image")
     target_size = RESOLUTIONS[args.resolution]
     output_path = normalize_output_path(args.output if args.output else default_output_path(audio_path, metadata))
     overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr)
@@ -1216,9 +1436,11 @@ def run(
     is_prores = output_path.suffix.lower() == ".mov"
 
     if not args.no_warn:
+        warnings = input_format_warnings(audio_path, image_path, bg_image_path)
+        if image_size is not None:
+            warnings.extend(quality_warnings(metadata, image_size, target_size))
         for warning in [
-            *input_format_warnings(audio_path, image_path),
-            *quality_warnings(metadata, image_size, target_size),
+            *warnings,
         ]:
             print(f"warning: {warning}", file=stderr)
     if is_prores:
@@ -1234,6 +1456,9 @@ def run(
         overwrite=overwrite,
         output_duration=output_duration,
         is_prores=is_prores,
+        bg_image_path=bg_image_path,
+        bg_color=args.bg_color,
+        bg_blur=args.bg_blur,
     )
     if args.dry_run:
         print(quote_command(command), file=stderr)

@@ -19,6 +19,7 @@ from yaatv.cli import (
     OutputStats,
     YaatvError,
     _download_url,
+    background_color,
     build_ffmpeg_command,
     choose_audio_plan,
     confirm_overwrite,
@@ -32,6 +33,7 @@ from yaatv.cli import (
     is_high_quality_aac,
     normalize_output_path,
     pad_seconds,
+    parse_args,
     probe_output,
     quality_warnings,
     read_audio_metadata,
@@ -139,6 +141,35 @@ def test_audio_and_image_are_required_for_encoding() -> None:
     with pytest.raises(YaatvError, match="Cover image is required"):
         run(["--audio", "track.wav"], stdin=StringIO(), stderr=StringIO())
 
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(["--audio", "track.wav", "--bg-color", "black"], stdin=StringIO(), stderr=StringIO())
+
+    with pytest.raises(YaatvError, match="--bg-blur requires a cover image"):
+        run(["--audio", "track.wav", "--bg-blur"], stdin=StringIO(), stderr=StringIO())
+
+    with pytest.raises(YaatvError, match="--bg-image requires a cover image"):
+        run(["--audio", "track.wav", "--bg-image", "background.jpg"], stdin=StringIO(), stderr=StringIO())
+
+
+def test_cover_image_is_optional_for_explicit_nondefault_background_color() -> None:
+    args = parse_args(["--audio", "track.wav", "--bg-color", "white"])
+
+    assert args.image is None
+    assert args.bg_color == "0xffffff"
+    assert args.bg_color_explicit
+
+
+def test_background_color_validates_values() -> None:
+    assert background_color("white") == "0xffffff"
+    assert background_color("black") == "black"
+    assert background_color("#2a2a2a") == "0x2a2a2a"
+
+    with pytest.raises(Exception, match="valid #RRGGBB hex color or named CSS color"):
+        background_color("not-a-color")
+
+    with pytest.raises(Exception, match="#RRGGBB"):
+        background_color("#fff")
+
 
 def test_transcode_command_uses_required_youtube_settings() -> None:
     plan = choose_audio_plan(
@@ -176,6 +207,141 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
+
+
+def test_background_color_changes_default_pad_color() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        bg_color="0xffffff",
+    )
+
+    assert command[command.index("-vf") + 1] == (
+        "scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:0xffffff,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def test_background_image_command_overlays_cover_on_background() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        bg_image_path=Path("background.jpg"),
+        bg_blur=True,
+        bg_color="0xffffff",
+    )
+
+    assert command[:14] == [
+        "ffmpeg",
+        "-n",
+        "-loop",
+        "1",
+        "-framerate",
+        "1",
+        "-i",
+        "background.jpg",
+        "-loop",
+        "1",
+        "-framerate",
+        "1",
+        "-i",
+        "cover.jpg",
+    ]
+    assert command[command.index("-map") + 1] == "[v]"
+    assert command[command.index("-map", command.index("-map") + 1) + 1] == "2:a:0"
+    assert command[command.index("-filter_complex") + 1] == (
+        "[0:v]scale=1920:1080:force_original_aspect_ratio=increase:out_range=tv,"
+        "crop=1920:1080[bg];"
+        "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
+    )
+
+
+def test_background_blur_command_splits_cover_image() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        bg_blur=True,
+        bg_color="0xffffff",
+    )
+
+    assert command[command.index("-map") + 1] == "[v]"
+    assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
+    assert command[command.index("-filter_complex") + 1] == (
+        "[0:v]split[s1][s2];"
+        "[s1]scale=1920:1080:force_original_aspect_ratio=increase,"
+        "crop=1920:1080,boxblur=20:5[bg];"
+        "[s2]scale=1920:1080:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
+    )
+
+
+def test_color_only_command_uses_generated_video_stream() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=None,
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        output_duration=30,
+        bg_color="0xffffff",
+    )
+
+    assert "-loop" not in command
+    assert command[command.index("-i") + 1] == "track.flac"
+    assert command[command.index("-f") + 1] == "lavfi"
+    assert command[command.index("-i", command.index("-i") + 1) + 1] == "color=c=0xffffff:s=1920x1080:d=30"
+    assert command[command.index("-vf") + 1] == (
+        "fps=fps=1:start_time=0,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+    assert command[command.index("-map") + 1] == "1:v:0"
+    assert command[command.index("-map", command.index("-map") + 1) + 1] == "0:a:0"
+    assert command[command.index("-t") + 1] == "30"
 
 
 def test_command_uses_shortest_without_duration_cap() -> None:
@@ -274,6 +440,10 @@ def test_unusual_input_extensions_warn_before_encoding() -> None:
     assert input_format_warnings(Path("track.audio"), Path("cover.picture")) == [
         "audio file extension is unusual: .audio",
         "cover image extension is unusual: .picture",
+    ]
+
+    assert input_format_warnings(Path("track.flac"), Path("cover.png"), Path("background.picture")) == [
+        "background image extension is unusual: .picture",
     ]
 
     assert input_format_warnings(Path("track.flac"), Path("cover.png")) == []
@@ -462,6 +632,43 @@ def test_run_dry_run_prints_command_without_encoding(
         stderr=stderr,
     ) == 0
     assert "ffmpeg" in stderr.getvalue()
+    assert str(output_path) in stderr.getvalue()
+    assert not output_path.exists()
+
+
+def test_run_dry_run_allows_color_only_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    stderr = StringIO()
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        ["-a", str(audio_path), "--bg-color", "white", "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert "color=c=0xffffff:s=1920x1080:d=13" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
 
@@ -748,6 +955,33 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,"
         "format=yuv422p10le,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def test_prores_background_image_uses_yuv422_overlay() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mov"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        is_prores=True,
+        bg_image_path=Path("background.jpg"),
+    )
+
+    assert command[command.index("-c:v") + 1] == "prores_ks"
+    assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
+    assert command[command.index("-f") + 1] == "mov"
+    assert command[command.index("-filter_complex") + 1].endswith(
+        "format=yuv422p10le,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
 
 
