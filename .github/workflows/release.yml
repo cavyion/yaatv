@@ -129,18 +129,27 @@ jobs:
             separator=";"
           fi
           pyinstaller_args=(
-            --onefile
-            --name "${{ matrix.executable_name }}"
-            --exclude-module numpy
+            --noconfirm
+            --onedir
+            --name "${{ matrix.executable_name }}${{ matrix.extension }}"
             --add-data "THIRD_PARTY_NOTICES.md${separator}."
             --add-data "FFMPEG_BUILD_INFO.txt${separator}."
+            --exclude-module numpy
+            yaatv_launcher.py
           )
-          python -m PyInstaller "${pyinstaller_args[@]}" yaatv_launcher.py
+          pyinstaller "${pyinstaller_args[@]}"
 
       - name: Smoke test executable
         shell: bash
         run: |
-          executable="dist/${{ matrix.executable_name }}${{ matrix.extension }}"
+          case "$RUNNER_OS" in
+            Windows)
+              executable="dist/${{ matrix.executable_name }}.exe/${{ matrix.executable_name }}.exe"
+              ;;
+            *)
+              executable="dist/${{ matrix.executable_name }}/${{ matrix.executable_name }}"
+              ;;
+          esac
           python - <<'PY'
           import math
           import struct
@@ -161,7 +170,9 @@ jobs:
                   frames.extend(packed)
               audio.writeframes(frames)
           PY
-          chmod +x "$executable"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod +x "$executable"
+          fi
           "$executable" --version
           case "$RUNNER_OS" in
             Windows)
@@ -194,9 +205,15 @@ jobs:
         run: |
           set -euo pipefail
           package_dir="package/${{ matrix.package_name }}"
-          executable="dist/${{ matrix.executable_name }}${{ matrix.extension }}"
           mkdir -p "$package_dir" release-assets
-          cp "$executable" "$package_dir/"
+          case "$RUNNER_OS" in
+            Windows)
+              cp -a dist/${{ matrix.executable_name }}.exe/* "$package_dir/"
+              ;;
+            *)
+              cp -a dist/${{ matrix.executable_name }}/* "$package_dir/"
+              ;;
+          esac
           cp LICENSE THIRD_PARTY_NOTICES.md FFMPEG_BUILD_INFO.txt "$package_dir/"
           python - <<'PY'
           from pathlib import Path
@@ -205,9 +222,9 @@ jobs:
           root = Path("package") / "${{ matrix.package_name }}"
           output = Path("release-assets") / "${{ matrix.package_name }}.zip"
           with ZipFile(output, "w", ZIP_DEFLATED) as archive:
-              for path in sorted(root.iterdir()):
+              for path in sorted(root.rglob("*")):
                   if path.is_file():
-                      archive.write(path, path.name)
+                      archive.write(path, path.relative_to(root).as_posix())
           PY
 
       - name: Upload release package artifact

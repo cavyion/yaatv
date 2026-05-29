@@ -2,7 +2,7 @@
 
 The yaatv source code is licensed under the MIT License in `LICENSE`.
 
-yaatv release ZIPs include a PyInstaller-built executable and third-party runtime components so users do not need a separate Python install. Release ZIPs do not bundle FFmpeg or FFprobe. Each release ZIP also includes this file, `LICENSE`, and `FFMPEG_BUILD_INFO.txt`.
+yaatv release ZIPs include a PyInstaller-built executable directory and third-party runtime components so users do not need a separate Python install. Release ZIPs do not bundle FFmpeg or FFprobe. Each release ZIP also includes this file, `LICENSE`, and `FFMPEG_BUILD_INFO.txt`.
 
 ## FFmpeg and FFprobe
 
@@ -33,9 +33,11 @@ https://git.ffmpeg.org/ffmpeg.git
 Release executables are built with PyInstaller:
 
 https://pyinstaller.org/
-https://pyinstaller.org/en/stable/license.html
+https://github.com/pyinstaller/pyinstaller/blob/develop/LICENSE.txt
 
-The executable may include CPython runtime files:
+PyInstaller is licensed under the GNU General Public License v2 with an exception for generated binaries.
+
+The executable directory may include CPython runtime files:
 
 https://www.python.org/
 https://docs.python.org/3/license.html

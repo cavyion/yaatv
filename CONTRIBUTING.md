@@ -103,9 +103,19 @@ After stable 1.0:
 
 Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README publishing example in sync. The release workflow refuses tag builds when `vX.Y.Z` does not match `pyproject.toml`.
 
+### Release checks
+
+For Windows release assets, submit `yaatv.exe` to Microsoft Security Intelligence after the release is published:
+
+https://www.microsoft.com/en-us/wdsi/filesubmission
+
+It is also best to do a VirusTotal scan, though false positives are fine and an expected behaviour.
+
+https://www.virustotal.com/gui/home/upload
+
 ### Tags
 
-Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.5.0`, tag that commit as `v0.5.0`. This keeps the release history clean and the CI build trigger working.
+Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.5.1`, tag that commit as `v0.5.1`. This keeps the release history clean and the CI build trigger working.
 
 ## Coding style
 

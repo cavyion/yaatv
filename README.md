@@ -22,9 +22,9 @@ Download the ZIP for your computer from the latest release:
 
 Use one of these release assets:
 
-- Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe`
-- Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux`
-- macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos`
+- Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe` and runtime files
+- Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux` and runtime files
+- macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos` and runtime files
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files unless you specifically want the code.
 
@@ -180,7 +180,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.0
+git tag v0.5.1
 git push origin main --tags
 ```
 

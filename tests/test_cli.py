@@ -621,19 +621,6 @@ def test_install_macos_ffmpeg_uses_arm64_downloads(
     assert (install_dir / "ffprobe").read_bytes() == b"arm64 ffprobe"
 
 
-def test_find_ffmpeg_prefers_pyinstaller_bundled_binary(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    bundled = tmp_path / "bin" / _executable_name("ffmpeg")
-    bundled.parent.mkdir()
-    bundled.write_bytes(b"")
-    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-    monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
-
-    assert find_external_tool("ffmpeg", "FFmpeg", app_bin_dir=tmp_path / "empty") == str(bundled)
-
-
 def test_find_ffprobe_uses_adjacent_bin_for_frozen_onedir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -334,10 +334,6 @@ def bundled_tool_paths(name: str) -> tuple[Path, ...]:
     executable = tool_executable_name(name)
     paths: list[Path] = []
 
-    pyinstaller_dir = getattr(sys, "_MEIPASS", None)
-    if pyinstaller_dir:
-        paths.append(Path(pyinstaller_dir) / "bin" / executable)
-
     if getattr(sys, "frozen", False):
         paths.append(Path(sys.executable).resolve().parent / "bin" / executable)
 
