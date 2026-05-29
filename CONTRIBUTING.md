@@ -107,11 +107,11 @@ Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README pu
 
 For Windows release assets, submit `yaatv.exe` to Microsoft Security Intelligence after the release is published:
 
-https://www.microsoft.com/en-us/wdsi/filesubmission
+[Submit Windows release assets to Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission)
 
 It is also best to do a VirusTotal scan, though false positives are fine and an expected behaviour.
 
-https://www.virustotal.com/gui/home/upload
+[Upload to VirusTotal](https://www.virustotal.com/gui/home/upload)
 
 ### Tags
 
