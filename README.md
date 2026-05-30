@@ -175,7 +175,7 @@ Download FFmpeg from <https://ffmpeg.org/download.html> if you want to manage th
 
 ## Third-party binaries
 
-The release ZIPs include `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. FFmpeg and FFprobe are downloaded only when `--install-ffmpeg` is used. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license links before redistributing release binaries.
+The release ZIPs include `LICENSE`, `THIRD_PARTY_LICENSES.txt`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. FFmpeg and FFprobe are downloaded only when `--install-ffmpeg` is used. See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for source and license details before redistributing release binaries.
 
 ## Development
 

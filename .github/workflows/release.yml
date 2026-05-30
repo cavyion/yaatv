@@ -132,7 +132,7 @@ jobs:
             --noconfirm
             --onedir
             --name "${{ matrix.executable_name }}${{ matrix.extension }}"
-            --add-data "THIRD_PARTY_NOTICES.md${separator}."
+            --add-data "THIRD_PARTY_LICENSES.txt${separator}."
             --add-data "FFMPEG_BUILD_INFO.txt${separator}."
             --exclude-module numpy
             yaatv_launcher.py
@@ -214,7 +214,7 @@ jobs:
               cp -a dist/${{ matrix.executable_name }}/* "$package_dir/"
               ;;
           esac
-          cp LICENSE THIRD_PARTY_NOTICES.md FFMPEG_BUILD_INFO.txt "$package_dir/"
+          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt "$package_dir/"
           python - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
