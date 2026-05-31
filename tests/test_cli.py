@@ -22,6 +22,7 @@ from yaatv.cli import (
     background_color,
     build_ffmpeg_command,
     choose_audio_plan,
+    classify_files,
     confirm_overwrite,
     default_output_path,
     find_external_tool,
@@ -149,6 +150,49 @@ def test_audio_and_image_are_required_for_encoding() -> None:
 
     with pytest.raises(YaatvError, match="--bg-image requires a cover image"):
         run(["--audio", "track.wav", "--bg-image", "background.jpg"], stdin=StringIO(), stderr=StringIO())
+
+
+def test_parse_args_accepts_positional_files() -> None:
+    args = parse_args(["cover.JPG", "track.FLAC", "--resolution", "4k"])
+
+    assert args.files == [Path("cover.JPG"), Path("track.FLAC")]
+    assert args.audio is None
+    assert args.image is None
+    assert args.resolution == "4k"
+
+
+def test_classify_files_detects_audio_and_image_in_any_order() -> None:
+    assert classify_files([Path("track.flac"), Path("cover.jpg")]) == (Path("track.flac"), Path("cover.jpg"))
+    assert classify_files([Path("cover.PNG"), Path("track.MP3")]) == (Path("track.MP3"), Path("cover.PNG"))
+
+
+def test_classify_files_rejects_wrong_count() -> None:
+    with pytest.raises(YaatvError, match="exactly 2 files .* but 1 were provided"):
+        classify_files([Path("track.flac")])
+
+    with pytest.raises(YaatvError, match="exactly 2 files .* but 3 were provided"):
+        classify_files([Path("track.flac"), Path("cover.jpg"), Path("logo.png")])
+
+
+def test_classify_files_rejects_same_type_inputs() -> None:
+    with pytest.raises(YaatvError, match="Two audio files provided"):
+        classify_files([Path("track.flac"), Path("song.mp3")])
+
+    with pytest.raises(YaatvError, match="Two image files provided"):
+        classify_files([Path("cover.jpg"), Path("art.png")])
+
+
+def test_classify_files_rejects_unrecognized_extensions() -> None:
+    with pytest.raises(YaatvError, match="Could not classify file.stuff as audio or image"):
+        classify_files([Path("track.flac"), Path("file.stuff")])
+
+
+def test_positional_files_cannot_be_mixed_with_audio_or_image_flags() -> None:
+    with pytest.raises(YaatvError, match="Do not use positional file arguments together with -a or -i flags"):
+        run(["-a", "track.flac", "cover.jpg"], stdin=StringIO(), stderr=StringIO())
+
+    with pytest.raises(YaatvError, match="Do not use positional file arguments together with -a or -i flags"):
+        run(["-i", "cover.jpg", "track.flac"], stdin=StringIO(), stderr=StringIO())
 
 
 def test_cover_image_is_optional_for_explicit_nondefault_background_color() -> None:
@@ -634,6 +678,108 @@ def test_run_dry_run_prints_command_without_encoding(
     assert "ffmpeg" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
+
+
+def test_run_quick_mode_dry_run_uses_classified_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    stderr = StringIO()
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist="Artist",
+            title="Title",
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(image_path), str(audio_path), "--resolution", "1440p", "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    command = stderr.getvalue()
+    assert str(image_path) in command
+    assert str(audio_path) in command
+    assert "pad=2560:1440:(ow-iw)/2:(oh-ih)/2:black" in command
+    assert "Artist - Title.mp4" in command
+
+
+def test_run_quick_mode_encodes_with_custom_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "custom.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.cli.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+        ),
+    )
+
+    def encode(command: list[str], *, verbose: bool = False) -> int:
+        captured["command"] = command
+        captured["verbose"] = verbose
+        output_path.write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert captured["verbose"] is False
+    assert str(output_path) in captured["command"]
+    assert output_path.exists()
+    assert f"Created {output_path}" in stderr.getvalue()
 
 
 def test_run_dry_run_allows_color_only_output(

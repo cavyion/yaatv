@@ -13,10 +13,28 @@ It is built for audio creators: producers, ASMRtists, podcasters, DJs, narrators
 Works with common audio files like WAV, FLAC, MP3, M4A/AAC, OGG, and Opus, plus static cover images like JPG, PNG, and WebP. Animated images are not accepted.
 
 ```sh
-yaatv -a audio.flac -i cover.jpg -o upload.mp4
+yaatv audio.flac cover.jpg
 ```
 
 Give it audio. Give it artwork. Get a video you can upload.
+
+On Windows, you can also drag one audio file and one cover image onto `yaatv.exe`. yaatv detects which file is audio and which file is the image, then writes the output with the default settings.
+
+## Drag and drop
+
+Drag-and-drop mode is for the quickest Windows run:
+
+1. Select one audio file and one cover image in Explorer.
+2. Drop both files onto `yaatv.exe`.
+3. yaatv creates a default 1080p MP4 in the current working directory.
+
+The same mode works from a terminal with plain file arguments:
+
+```sh
+yaatv audio.flac cover.jpg
+```
+
+Use PowerShell or a terminal with flags when you want to choose the output path, resolution, background, padding, or verbose output.
 
 ## Recommendations
 
@@ -44,15 +62,18 @@ Release ZIPs include the yaatv executable without FFmpeg. Run `--install-ffmpeg`
 
 ## Run
 
-yaatv is a command-line app. Do not double-click the executable; open PowerShell or a terminal in the extracted folder and run it with your audio and image paths.
+yaatv is a command-line app. For full control, open PowerShell or a terminal in the extracted folder and run it with your audio and image paths.
 
 On Windows, run the executable from PowerShell:
 
 ```powershell
 .\yaatv.exe --version
 .\yaatv.exe --install-ffmpeg
+.\yaatv.exe audio.flac cover.jpg
 .\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
+
+For the quickest Windows run, drag one audio file and one cover image onto `yaatv.exe`. Drag-and-drop mode uses default settings. Use PowerShell when you want to choose the output path, resolution, background, padding, or verbose output.
 
 If FFmpeg is missing during an interactive run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `--install-ffmpeg`.
 
@@ -85,6 +106,7 @@ xattr -d com.apple.quarantine ./yaatv-macos
 The smallest command uses the audio file name, or artist/title tags when available, for the output file:
 
 ```sh
+yaatv audio.flac cover.jpg
 yaatv -a audio.flac -i cover.jpg
 ```
 
@@ -96,8 +118,9 @@ yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
 
 Flags:
 
-- `-a`, `--audio`: audio file, required unless using `--install-ffmpeg`
-- `-i`, `--image`: cover image, required unless using `--install-ffmpeg` or color-only output
+- Positional files: one audio file and one cover image, used for drag-and-drop mode when exactly two files are provided
+- `-a`, `--audio`: audio file, required unless using `--install-ffmpeg` or positional files
+- `-i`, `--image`: cover image, required unless using `--install-ffmpeg`, positional files, or color-only output
 - `-b`, `--bg-image`: background image to place behind the cover image
 - `--bg-color`: background color as `#RRGGBB` or a named CSS color, default is `black`
 - `--bg-blur`: use a blurred copy of the cover image as the background
@@ -204,7 +227,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.2
+git tag v0.5.3
 git push origin main --tags
 ```
 

@@ -32,13 +32,14 @@
           <h1 id="hero-title">Audio and cover art to video.</h1>
           <p class="lead">
             Turn a song, ASMR session, podcast episode, mix, or voice note into an upload-ready video file. Pick an
-            audio file, pick a static cover image, and yaatv makes the video locally.
+            audio file, pick a static cover image, and yaatv makes the video locally. On Windows, you can drag one
+            audio file and one cover image onto <code>yaatv.exe</code> for a default MP4.
           </p>
           <div class="actions" role="group" aria-label="Primary actions">
             <a class="button button-primary" href="https://github.com/cavyion/yaatv/releases/latest">Download yaatv</a>
             <a class="button" href="#usage">See examples</a>
           </div>
-          <pre class="command"><code>yaatv -a audio.flac -i cover.jpg -o output.mp4 --resolution 1440p</code></pre>
+          <pre class="command"><code>yaatv audio.flac cover.jpg</code></pre>
         </div>
 
         <figure class="demo">
@@ -121,6 +122,11 @@
           may need Rosetta to run yaatv, and <code>--install-ffmpeg</code> supports Apple Silicon FFmpeg tools.
           <a href="https://github.com/cavyion/yaatv/releases/latest">Open the latest release</a>.
         </p>
+        <p class="note">
+          Windows users can drag one audio file and one cover image onto <code>yaatv.exe</code>. Drag-and-drop mode
+          uses default settings. Use PowerShell when you want to choose the output path, resolution, background,
+          padding, or verbose output.
+        </p>
       </section>
 
       <section id="usage" class="section two-column" aria-labelledby="usage-title">
@@ -133,6 +139,7 @@
         </div>
 
         <div class="examples" role="group" aria-label="Command examples">
+          <pre><code>yaatv audio.flac cover.jpg</code></pre>
           <pre><code>yaatv -a audio.flac -i cover.jpg</code></pre>
           <pre><code>yaatv -a episode.wav -i cover.png -o upload.mp4 --resolution 4k</code></pre>
           <pre><code>yaatv -a mix.wav -i cover.jpg -o upload.mov</code></pre>
@@ -173,14 +180,14 @@ ffprobe -version</code></pre>
         <div class="section-header">
           <h2 id="notices-title">Third-party notices</h2>
           <p>
-            Release ZIPs include <code>LICENSE</code>, <code>THIRD_PARTY_NOTICES.md</code>, and
+            Release ZIPs include <code>LICENSE</code>, <code>THIRD_PARTY_LICENSES.txt</code>, and
             <code>FFMPEG_BUILD_INFO.txt</code>. FFmpeg source and license information are linked in those notices and
             from the FFmpeg project.
           </p>
         </div>
         <p class="note">
           Read the notices on
-          <a href="https://github.com/cavyion/yaatv/blob/main/THIRD_PARTY_NOTICES.md">GitHub</a>
+          <a href="https://github.com/cavyion/yaatv/blob/main/THIRD_PARTY_LICENSES.txt">GitHub</a>
           before redistributing yaatv release binaries.
         </p>
       </section>

@@ -189,13 +189,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "-a",
         "--audio",
         type=Path,
-        help="Path to audio file (required unless using --install-ffmpeg)",
+        help="Path to audio file (required unless using --install-ffmpeg or positional files)",
     )
     parser.add_argument(
         "-i",
         "--image",
         type=Path,
-        help="Path to cover image (required unless using --install-ffmpeg or color-only output)",
+        help="Path to cover image (required unless using --install-ffmpeg, positional files, or color-only output)",
     )
     parser.add_argument(
         "-b",
@@ -253,6 +253,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "files",
+        nargs="*",
+        type=Path,
+        help="Audio and image files for drag-and-drop mode (exactly 2 files required)",
+    )
     args = parser.parse_args(argv_list)
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
     return args
@@ -265,6 +271,43 @@ def require_file(path: Path, label: str) -> Path:
     if not resolved.is_file():
         raise YaatvError(f"{label} is not a file: {path}")
     return resolved
+
+
+def classify_files(paths: Sequence[Path]) -> tuple[Path, Path]:
+    if len(paths) != 2:
+        raise YaatvError(
+            f"Drag-and-drop mode requires exactly 2 files (one audio, one image), "
+            f"but {len(paths)} were provided."
+        )
+
+    audio_paths = [path for path in paths if path.suffix.lower() in KNOWN_AUDIO_EXTENSIONS]
+    image_paths = [path for path in paths if path.suffix.lower() in KNOWN_IMAGE_EXTENSIONS]
+    unrecognized_paths = [
+        path
+        for path in paths
+        if path.suffix.lower() not in KNOWN_AUDIO_EXTENSIONS and path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS
+    ]
+
+    if len(audio_paths) == 1 and len(image_paths) == 1 and not unrecognized_paths:
+        return audio_paths[0], image_paths[0]
+
+    if len(audio_paths) == 2:
+        raise YaatvError(
+            f"Two audio files provided ({audio_paths[0]}, {audio_paths[1]}). "
+            "Expected one audio file and one cover image."
+        )
+    if len(image_paths) == 2:
+        raise YaatvError(
+            f"Two image files provided ({image_paths[0]}, {image_paths[1]}). "
+            "Expected one audio file and one cover image."
+        )
+    if unrecognized_paths:
+        raise YaatvError(
+            f"Could not classify {unrecognized_paths[0]} as audio or image. "
+            "Use -a and -i flags for files with unusual extensions."
+        )
+
+    raise YaatvError("Expected one audio file and one cover image.")
 
 
 def find_ffmpeg(
@@ -1409,18 +1452,28 @@ def run(
         install_ffmpeg(stderr=stderr)
         return 0
 
-    if args.audio is None:
-        raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
-    color_only = args.image is None and args.bg_color_explicit and not is_default_background_color(args.bg_color)
-    if args.image is None and args.bg_blur:
-        raise YaatvError("--bg-blur requires a cover image. Use -i/--image to choose one.")
-    if args.image is None and args.bg_image is not None:
-        raise YaatvError("--bg-image requires a cover image. Use -i/--image to choose one.")
-    if args.image is None and not color_only:
-        raise YaatvError("Cover image is required. Use -i/--image to choose one.")
+    image_path: Path | None
+    if args.files:
+        if args.audio is not None or args.image is not None:
+            raise YaatvError(
+                "Do not use positional file arguments together with -a or -i flags. Use one or the other."
+            )
+        classified_audio_path, classified_image_path = classify_files(args.files)
+        audio_path = require_file(classified_audio_path, "Audio file")
+        image_path = require_file(classified_image_path, "Cover image")
+    else:
+        if args.audio is None:
+            raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
+        color_only = args.image is None and args.bg_color_explicit and not is_default_background_color(args.bg_color)
+        if args.image is None and args.bg_blur:
+            raise YaatvError("--bg-blur requires a cover image. Use -i/--image to choose one.")
+        if args.image is None and args.bg_image is not None:
+            raise YaatvError("--bg-image requires a cover image. Use -i/--image to choose one.")
+        if args.image is None and not color_only:
+            raise YaatvError("Cover image is required. Use -i/--image to choose one.")
 
-    audio_path = require_file(args.audio, "Audio file")
-    image_path = require_file(args.image, "Cover image") if args.image is not None else None
+        audio_path = require_file(args.audio, "Audio file")
+        image_path = require_file(args.image, "Cover image") if args.image is not None else None
     bg_image_path = require_file(args.bg_image, "Background image") if args.bg_image is not None else None
     ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
     metadata = read_audio_metadata(audio_path)
