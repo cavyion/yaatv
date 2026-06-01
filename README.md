@@ -10,7 +10,7 @@ yaatv turns audio and cover art into a YouTube-ready video without opening a vid
 
 It is built for audio creators: producers, ASMRtists, podcasters, DJs, narrators, and anyone publishing audio with a static image.
 
-Works with common audio files like WAV, FLAC, MP3, M4A/AAC, OGG, and Opus, plus static cover images like JPG, PNG, and WebP. Animated images are not accepted.
+Works with common audio files like WAV, FLAC, MP3, M4A or AAC, OGG, and Opus, plus static cover images like JPG, PNG, and WebP. Animated images are not accepted.
 
 ```sh
 yaatv audio.flac cover.jpg
@@ -103,7 +103,7 @@ xattr -d com.apple.quarantine ./yaatv-macos
 
 ## Usage
 
-The smallest command uses the audio file name, or artist/title tags when available, for the output file:
+The smallest command uses the audio file name, or artist and title tags when available, for the output file:
 
 ```sh
 yaatv audio.flac cover.jpg
@@ -138,7 +138,7 @@ yaatv accepts common audio files and static cover images. Higher-quality source 
 
 Audio:
 
-- WAV, FLAC, MP3, M4A/AAC, OGG, and Opus are supported.
+- WAV, FLAC, MP3, M4A or AAC, OGG, and Opus are supported.
 - Use WAV, FLAC, or high-bitrate AAC when available.
 - 24-bit WAV is a good source format.
 
@@ -164,11 +164,10 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 
 - MP4 output uses H.264 video at CRF 16, preset `slow`, yuv420p pixel format, and `+faststart`.
 - MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
-- Audio is kept in an upload-friendly format. High-quality AAC can be copied directly when no padding is needed.
+- Audio is encoded or copied into a format suitable for upload. High-quality AAC can be copied directly when no padding is needed.
 - Cover images keep their aspect ratio. yaatv adds a background instead of stretching.
 - Video is 1fps. The audio plays at normal speed; the image does not animate.
 - Video is encoded for broad playback compatibility and YouTube uploads.
-- Typical MP4 output is 5 to 30 MB depending on audio length.
 - Completed files are checked after encoding and summarized before yaatv exits.
 - Existing output files require confirmation before overwrite.
 

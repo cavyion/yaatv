@@ -7,12 +7,14 @@ import tarfile
 import zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
+from urllib.request import Request
 
 import pytest
 from PIL import Image
 
 from yaatv import __version__
 from yaatv.cli import (
+    FFMPEG_DOWNLOAD_USER_AGENT,
     MACOS_ARM64_FFMPEG_ARCHIVE_URL,
     MACOS_ARM64_FFPROBE_ARCHIVE_URL,
     AudioMetadata,
@@ -814,7 +816,7 @@ def test_run_dry_run_allows_color_only_output(
         stdin=StringIO(),
         stderr=stderr,
     ) == 0
-    assert "color=c=0xffffff:s=1920x1080:d=13" in stderr.getvalue()
+    assert "color=c=0xffffff:s=1920x1080:d=12.1" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
 
@@ -844,8 +846,9 @@ def test_download_url_uses_timeout(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def urlopen(url: str, *, timeout: int) -> BytesIO:
-        captured["url"] = url
+    def urlopen(request: Request, *, timeout: int) -> BytesIO:
+        captured["url"] = request.full_url
+        captured["user_agent"] = request.get_header("User-agent")
         captured["timeout"] = timeout
         return BytesIO(b"archive")
 
@@ -856,6 +859,7 @@ def test_download_url_uses_timeout(
 
     assert captured == {
         "url": "https://example.invalid/ffmpeg.zip",
+        "user_agent": FFMPEG_DOWNLOAD_USER_AGENT,
         "timeout": 60,
     }
     assert destination.read_bytes() == b"archive"

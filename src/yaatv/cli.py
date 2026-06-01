@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 import platform
 import re
@@ -71,6 +70,7 @@ WINDOWS_RESERVED_FILENAMES = {
 }
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
+FFMPEG_DOWNLOAD_USER_AGENT = f"yaatv/{__version__}"
 WINDOWS_FFMPEG_ARCHIVE_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
     "autobuild-2026-05-25-14-02/"
@@ -614,7 +614,8 @@ def _install_staged_tools(
 
 
 def _download_url(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": FFMPEG_DOWNLOAD_USER_AGENT})
+    with urllib.request.urlopen(request, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
         with destination.open("wb") as output:
             shutil.copyfileobj(response, output)
 
@@ -1484,7 +1485,7 @@ def run(
     output_path = normalize_output_path(args.output if args.output else default_output_path(audio_path, metadata))
     overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr)
     audio_plan = choose_audio_plan(metadata, args.pad)
-    output_duration = math.ceil(metadata.duration + args.pad) if metadata.duration is not None else None
+    output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
     is_prores = output_path.suffix.lower() == ".mov"
 
