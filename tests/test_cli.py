@@ -17,6 +17,10 @@ from yaatv.cli import (
     FFMPEG_DOWNLOAD_USER_AGENT,
     MACOS_ARM64_FFMPEG_ARCHIVE_URL,
     MACOS_ARM64_FFPROBE_ARCHIVE_URL,
+    MACOS_FFMPEG_ARCHIVE_SHA256,
+    MACOS_FFMPEG_ARCHIVE_URL,
+    MACOS_FFPROBE_ARCHIVE_SHA256,
+    MACOS_FFPROBE_ARCHIVE_URL,
     AudioMetadata,
     OutputStats,
     YaatvError,
@@ -28,6 +32,8 @@ from yaatv.cli import (
     confirm_overwrite,
     default_output_path,
     find_external_tool,
+    format_duration,
+    format_file_details,
     format_output_stats,
     input_format_warnings,
     install_linux_ffmpeg,
@@ -41,8 +47,10 @@ from yaatv.cli import (
     quality_warnings,
     read_audio_metadata,
     resolve_ffmpeg_tools,
+    resolve_output_path,
     run,
     run_ffmpeg,
+    run_scry,
     sanitize_filename,
     validate_image,
     verify_output_stats,
@@ -137,6 +145,29 @@ def test_release_workflow_does_not_bundle_ffmpeg_tools() -> None:
     assert "LOCALAPPDATA" in workflow
 
 
+def test_release_workflow_builds_native_macos_arm64_asset() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "package_name: yaatv-macos-x64" in workflow
+    assert "package_name: yaatv-macos-arm64" in workflow
+    assert "executable_name: yaatv-macos-arm64" in workflow
+    assert "MACOS_ARM64_FFMPEG_ARCHIVE_URL" in workflow
+    assert "platform.machine()" in workflow
+
+
+def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
+    assert MACOS_FFMPEG_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
+    )
+    assert MACOS_FFPROBE_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
+    )
+    assert MACOS_FFMPEG_ARCHIVE_SHA256 == "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
+    assert MACOS_FFPROBE_ARCHIVE_SHA256 == "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
+
+
 def test_audio_and_image_are_required_for_encoding() -> None:
     with pytest.raises(YaatvError, match="Audio file is required"):
         run([], stdin=StringIO(), stderr=StringIO())
@@ -154,6 +185,12 @@ def test_audio_and_image_are_required_for_encoding() -> None:
         run(["--audio", "track.wav", "--bg-image", "background.jpg"], stdin=StringIO(), stderr=StringIO())
 
 
+def test_run_scry_does_not_require_audio_or_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("yaatv.cli.run_scry", lambda **_kwargs: 0)
+
+    assert run(["--scry"], stdin=StringIO(), stderr=StringIO()) == 0
+
+
 def test_parse_args_accepts_positional_files() -> None:
     args = parse_args(["cover.JPG", "track.FLAC", "--resolution", "4k"])
 
@@ -161,6 +198,25 @@ def test_parse_args_accepts_positional_files() -> None:
     assert args.audio is None
     assert args.image is None
     assert args.resolution == "4k"
+
+
+def test_parse_args_accepts_scry_without_files() -> None:
+    args = parse_args(["--scry"])
+
+    assert args.scry is True
+    assert args.audio is None
+    assert args.image is None
+
+
+def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        parse_args(["--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "examples:" in help_text
+    assert "yaatv audio.flac cover.jpg" in help_text
+    assert "yaatv --scry" in help_text
 
 
 def test_classify_files_detects_audio_and_image_in_any_order() -> None:
@@ -320,7 +376,7 @@ def test_background_image_command_overlays_cover_on_background() -> None:
     assert command[command.index("-filter_complex") + 1] == (
         "[0:v]scale=1920:1080:force_original_aspect_ratio=increase:out_range=tv,"
         "crop=1920:1080[bg];"
-        "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease[fg];"
+        "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
@@ -349,9 +405,9 @@ def test_background_blur_command_splits_cover_image() -> None:
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
     assert command[command.index("-filter_complex") + 1] == (
         "[0:v]split[s1][s2];"
-        "[s1]scale=1920:1080:force_original_aspect_ratio=increase,"
+        "[s1]scale=1920:1080:force_original_aspect_ratio=increase:out_range=tv,"
         "crop=1920:1080,boxblur=20:5[bg];"
-        "[s2]scale=1920:1080:force_original_aspect_ratio=decrease[fg];"
+        "[s2]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
@@ -513,6 +569,43 @@ def test_default_output_falls_back_to_audio_stem() -> None:
     assert default_output_path(Path("input.flac"), metadata) == Path("input.mp4")
 
 
+def test_output_dir_places_default_name_in_existing_directory(tmp_path: Path) -> None:
+    output_dir = tmp_path / "uploads"
+    output_dir.mkdir()
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        artist="Artist",
+        title="Title",
+    )
+
+    assert resolve_output_path(Path("input.flac"), metadata, None, output_dir) == output_dir / "Artist - Title.mp4"
+
+
+def test_output_dir_rejects_missing_directory(tmp_path: Path) -> None:
+    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
+
+    with pytest.raises(YaatvError, match="Output directory does not exist"):
+        resolve_output_path(Path("input.flac"), metadata, None, tmp_path / "missing")
+
+
+def test_output_dir_rejects_file_path(tmp_path: Path) -> None:
+    output_dir = tmp_path / "not-a-directory"
+    output_dir.write_text("file", encoding="utf-8")
+    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
+
+    with pytest.raises(YaatvError, match="Output directory is not a directory"):
+        resolve_output_path(Path("input.flac"), metadata, None, output_dir)
+
+
+def test_output_dir_cannot_be_combined_with_output(tmp_path: Path) -> None:
+    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
+
+    with pytest.raises(YaatvError, match="Do not use --output-dir together with -o/--output"):
+        resolve_output_path(Path("input.flac"), metadata, Path("out.mp4"), tmp_path)
+
+
 def test_pad_seconds_validates_range() -> None:
     assert pad_seconds("0") == 0
     assert pad_seconds("10") == 10
@@ -573,6 +666,47 @@ def test_find_ffprobe_missing_reports_install_command(
 
     with pytest.raises(YaatvError, match="yaatv --install-ffmpeg"):
         find_external_tool("ffprobe", "FFprobe", app_bin_dir=tmp_path / "empty", packaged_paths=())
+
+
+def test_run_scry_succeeds_with_app_managed_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: str(app_bin / _executable_name(name)))
+    monkeypatch.setattr("yaatv.cli.tool_version", lambda tool: "7.1.4")
+
+    assert run_scry(stderr=stderr) == 0
+    output = stderr.getvalue()
+    assert f"ok    ffmpeg: {app_bin / _executable_name('ffmpeg')}" in output
+    assert f"ok    ffprobe: {app_bin / _executable_name('ffprobe')}" in output
+    assert "info  ffmpeg version: 7.1.4" in output
+    assert "ok    current directory is writable" in output
+
+
+def test_run_scry_fails_when_required_tools_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+
+    assert run_scry(stderr=stderr) == 1
+    output = stderr.getvalue()
+    assert "warn  ffmpeg: not found in app-managed bin" in output
+    assert "warn  ffprobe on PATH: not found" in output
 
 
 def test_resolve_ffmpeg_tools_noninteractive_does_not_install(
@@ -682,6 +816,48 @@ def test_run_dry_run_prints_command_without_encoding(
     assert not output_path.exists()
 
 
+def test_run_dry_run_does_not_require_ffmpeg_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    stderr = StringIO()
+
+    def resolve_tools(**_kwargs: object) -> tuple[str, str]:
+        raise AssertionError("dry run must not resolve FFmpeg tools")
+
+    def find_tool(**_kwargs: object) -> str:
+        raise YaatvError("FFmpeg was not found")
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", resolve_tools)
+    monkeypatch.setattr("yaatv.cli.find_ffmpeg", find_tool)
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert stderr.getvalue().startswith("ffmpeg -n ")
+    assert str(output_path) in stderr.getvalue()
+    assert not output_path.exists()
+
+
 def test_run_quick_mode_dry_run_uses_classified_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -782,6 +958,67 @@ def test_run_quick_mode_encodes_with_custom_output(
     assert str(output_path) in captured["command"]
     assert output_path.exists()
     assert f"Created {output_path}" in stderr.getvalue()
+
+
+def test_run_uses_output_dir_and_overwrite_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_dir = tmp_path / "uploads"
+    output_path = output_dir / "Artist - Title.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    output_dir.mkdir()
+    output_path.write_bytes(b"existing")
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist="Artist",
+            title="Title",
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    def encode(command: list[str], *, verbose: bool = False) -> int:
+        captured["command"] = command
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr(
+        "yaatv.cli.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+            duration=12.1,
+        ),
+    )
+
+    assert run(
+        [str(audio_path), str(image_path), "--output-dir", str(output_dir), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert captured["command"][1] == "-y"
+    assert str(output_path) in captured["command"]
 
 
 def test_run_dry_run_allows_color_only_output(
@@ -1021,6 +1258,22 @@ def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> Non
         confirm_overwrite(output, stdin=StringIO(), stderr=StringIO())
 
 
+def test_overwrite_flag_skips_prompt(tmp_path: Path) -> None:
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"existing")
+
+    assert confirm_overwrite(output, stdin=StringIO(), stderr=StringIO(), overwrite=True) is True
+
+
+def test_existing_output_prompts_when_interactive(tmp_path: Path) -> None:
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"existing")
+    stderr = StringIO()
+
+    assert confirm_overwrite(output, stdin=_TtyInput("y\n"), stderr=stderr) is True
+    assert f"Output already exists: {output}" in stderr.getvalue()
+
+
 def test_normalize_output_path_rejects_missing_directory(tmp_path: Path) -> None:
     with pytest.raises(YaatvError, match="Output directory does not exist"):
         normalize_output_path(tmp_path / "missing" / "out.mp4")
@@ -1133,6 +1386,8 @@ def test_prores_background_image_uses_yuv422_overlay() -> None:
         "format=yuv422p10le,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
+    assert "force_original_aspect_ratio=increase:out_range=tv" in command[command.index("-filter_complex") + 1]
+    assert "force_original_aspect_ratio=decrease:out_range=tv" in command[command.index("-filter_complex") + 1]
 
 
 def test_h264_command_unchanged_without_is_prores() -> None:
@@ -1236,6 +1491,20 @@ def test_verify_output_stats_accepts_expected_youtube_profile() -> None:
     assert format_output_stats(stats) == (
         "1920x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
     )
+
+
+def test_format_file_details_prints_size_and_duration(tmp_path: Path) -> None:
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"0" * 1_048_576)
+
+    assert format_file_details(output, 222.4) == "1.0 MB, 3:42"
+
+
+def test_format_file_details_omits_unavailable_values(tmp_path: Path) -> None:
+    output = tmp_path / "missing.mp4"
+
+    assert format_file_details(output, None) is None
+    assert format_duration(3661) == "1:01:01"
 
 
 def test_verify_output_stats_rejects_unreported_h264_color_range() -> None:

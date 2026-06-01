@@ -84,10 +84,10 @@ LINUX_FFMPEG_ARCHIVE_URL = (
     "ffmpeg-N-124633-gc79dfd29e6-linux64-gpl.tar.xz"
 )
 LINUX_FFMPEG_ARCHIVE_SHA256 = "de58117d6dd2c20e38e66febefe9732b00def28cf580195132478b64e679c8af"
-MACOS_FFMPEG_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffmpeg-8.1.1.zip"
-MACOS_FFMPEG_ARCHIVE_SHA256 = "4610988e2f54c243c50da73a09e4e2c36d9bb77546f9aa6c84cb328dcb1a98c1"
-MACOS_FFPROBE_ARCHIVE_URL = "https://evermeet.cx/ffmpeg/ffprobe-8.1.1.zip"
-MACOS_FFPROBE_ARCHIVE_SHA256 = "aeade29dee3c3844e9bcc974f4ae4b29cc4f87994177d77003a8589fa531009e"
+MACOS_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
+MACOS_FFMPEG_ARCHIVE_SHA256 = "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
+MACOS_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
+MACOS_FFPROBE_ARCHIVE_SHA256 = "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
 MACOS_ARM64_FFMPEG_ARCHIVE_URL = (
     "https://ffmpeg.martin-riedl.de/download/macos/arm64/1778761665_8.1.1/ffmpeg.zip"
 )
@@ -133,6 +133,7 @@ class OutputStats:
     frame_rate: float | None
     audio_codec: str | None
     audio_sample_rate: int | None
+    duration: float | None = None
 
 
 def pad_seconds(value: str) -> float:
@@ -184,6 +185,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="yaatv",
         description="Combine an audio file and cover image into a YouTube-ready video.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  yaatv audio.flac cover.jpg
+  yaatv -a audio.flac -i cover.jpg -o output.mp4
+  yaatv -a episode.wav -i cover.jpg --resolution 1440p
+  yaatv -a mix.wav -i cover.jpg --bg-blur
+  yaatv -a session.mp3 -i art.jpg -o upload.mov
+  yaatv --install-ffmpeg
+  yaatv --scry""",
     )
     parser.add_argument(
         "-a",
@@ -221,6 +231,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Output path (default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
     )
     parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Directory for the default output filename",
+    )
+    parser.add_argument(
         "--resolution",
         choices=tuple(RESOLUTIONS),
         default="1080p",
@@ -248,9 +263,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Show FFmpeg progress output while encoding",
     )
     parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing output file without prompting",
+    )
+    parser.add_argument(
         "--install-ffmpeg",
         action="store_true",
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
+    )
+    parser.add_argument(
+        "--scry",
+        action="store_true",
+        help="Check yaatv, FFmpeg, FFprobe, and output directory setup",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
@@ -466,6 +491,94 @@ def resolve_ffmpeg_tools(
             find_ffmpeg(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
             find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
         )
+
+
+def run_scry(stderr: TextIO = sys.stderr) -> int:
+    failure = False
+    path_ffmpeg = shutil.which("ffmpeg")
+    path_ffprobe = shutil.which("ffprobe")
+    app_bin_dir: Path | None
+    app_supported = supports_app_managed_ffmpeg_install()
+
+    print(f"yaatv {__version__}", file=stderr)
+    print("", file=stderr)
+    print("System", file=stderr)
+    print(f"ok    platform: {platform.system() or sys.platform} {platform.machine() or 'unknown'}", file=stderr)
+    print(f"ok    python: {platform.python_version()}", file=stderr)
+    try:
+        app_bin_dir = app_managed_ffmpeg_bin_dir()
+    except YaatvError as exc:
+        app_bin_dir = None
+        print(f"warn  app-managed bin: {exc}", file=stderr)
+    else:
+        print(f"ok    app-managed bin: {app_bin_dir}", file=stderr)
+
+    print("", file=stderr)
+    print("Tools", file=stderr)
+    app_ffmpeg = app_bin_dir / tool_executable_name("ffmpeg") if app_bin_dir is not None else None
+    app_ffprobe = app_bin_dir / tool_executable_name("ffprobe") if app_bin_dir is not None else None
+    _print_tool_check("ffmpeg", app_ffmpeg, path_ffmpeg, stderr)
+    _print_tool_check("ffprobe", app_ffprobe, path_ffprobe, stderr)
+
+    selected_ffmpeg = str(app_ffmpeg) if app_ffmpeg is not None and app_ffmpeg.is_file() else path_ffmpeg
+    selected_ffprobe = str(app_ffprobe) if app_ffprobe is not None and app_ffprobe.is_file() else path_ffprobe
+    if selected_ffmpeg:
+        version = tool_version(selected_ffmpeg)
+        if version:
+            print(f"info  ffmpeg version: {version}", file=stderr)
+    if selected_ffprobe:
+        version = tool_version(selected_ffprobe)
+        if version:
+            print(f"info  ffprobe version: {version}", file=stderr)
+    if selected_ffmpeg is None or selected_ffprobe is None:
+        failure = True
+    if not app_supported and selected_ffmpeg is None and selected_ffprobe is None:
+        failure = True
+
+    print("", file=stderr)
+    print("Output", file=stderr)
+    if current_directory_is_writable():
+        print("ok    current directory is writable", file=stderr)
+    else:
+        print("fail  current directory is not writable", file=stderr)
+        failure = True
+
+    return 1 if failure else 0
+
+
+def _print_tool_check(name: str, app_tool: Path | None, path_tool: str | None, stderr: TextIO) -> None:
+    if app_tool is not None and app_tool.is_file():
+        print(f"ok    {name}: {app_tool}", file=stderr)
+    elif app_tool is not None:
+        print(f"warn  {name}: not found in app-managed bin ({app_tool})", file=stderr)
+    else:
+        print(f"warn  {name}: app-managed install is not supported on this system", file=stderr)
+
+    if path_tool:
+        print(f"ok    {name} on PATH: {path_tool}", file=stderr)
+    else:
+        print(f"warn  {name} on PATH: not found", file=stderr)
+
+
+def tool_version(tool: str) -> str | None:
+    try:
+        completed = subprocess.run([tool, "-version"], check=False, capture_output=True, text=True)
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+
+    first_line = completed.stdout.splitlines()[0] if completed.stdout.splitlines() else ""
+    match = re.search(r"\bversion\s+([^\s]+)", first_line)
+    return match.group(1) if match else first_line.strip() or None
+
+
+def current_directory_is_writable() -> bool:
+    try:
+        with tempfile.NamedTemporaryFile(prefix=".yaatv-write-test-", dir=Path.cwd(), delete=True):
+            return True
+    except OSError:
+        return False
 
 
 def install_ffmpeg(
@@ -1046,7 +1159,7 @@ def build_ffmpeg_command(
         video_filter = (
             f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
             f"crop={width}:{height}[bg];"
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
         )
         return [
@@ -1093,9 +1206,9 @@ def build_ffmpeg_command(
     if bg_blur:
         video_filter = (
             "[0:v]split[s1][s2];"
-            f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
             f"crop={width}:{height},boxblur=20:5[bg];"
-            f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+            f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
         )
         return [
@@ -1232,7 +1345,9 @@ def build_ffmpeg_command(
     ]
 
 
-def confirm_overwrite(path: Path, stdin: TextIO, stderr: TextIO) -> bool:
+def confirm_overwrite(path: Path, stdin: TextIO, stderr: TextIO, *, overwrite: bool = False) -> bool:
+    if overwrite:
+        return True
     if not path.exists():
         return False
 
@@ -1254,6 +1369,27 @@ def normalize_output_path(path: Path) -> Path:
     if output_path.parent != Path(".") and not output_path.parent.exists():
         raise YaatvError(f"Output directory does not exist: {output_path.parent}")
     return output_path
+
+
+def resolve_output_path(
+    audio_path: Path,
+    metadata: AudioMetadata,
+    output: Path | None,
+    output_dir: Path | None,
+) -> Path:
+    if output is not None and output_dir is not None:
+        raise YaatvError("Do not use --output-dir together with -o/--output. Use one or the other.")
+    if output is not None:
+        return normalize_output_path(output)
+    if output_dir is None:
+        return normalize_output_path(default_output_path(audio_path, metadata))
+
+    directory = output_dir.expanduser()
+    if not directory.exists():
+        raise YaatvError(f"Output directory does not exist: {output_dir}")
+    if not directory.is_dir():
+        raise YaatvError(f"Output directory is not a directory: {output_dir}")
+    return directory / default_output_path(audio_path, metadata).name
 
 
 def quote_command(command: Sequence[str]) -> str:
@@ -1279,6 +1415,7 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         "-print_format",
         "json",
         "-show_streams",
+        "-show_format",
         str(output_path),
     ]
     try:
@@ -1302,6 +1439,9 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
     streams = data.get("streams", [])
     if not isinstance(streams, list):
         streams = []
+    output_format = data.get("format", {})
+    if not isinstance(output_format, dict):
+        output_format = {}
     video = _first_stream(streams, "video")
     audio = _first_stream(streams, "audio")
 
@@ -1317,6 +1457,7 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         frame_rate=_rate_or_none(video.get("avg_frame_rate") or video.get("r_frame_rate")),
         audio_codec=_string_or_none(audio.get("codec_name")),
         audio_sample_rate=_int_or_none(audio.get("sample_rate")),
+        duration=_float_or_none(output_format.get("duration")),
     )
 
 
@@ -1374,6 +1515,35 @@ def format_output_stats(stats: OutputStats) -> str:
 def print_output_summary(output_path: Path, stats: OutputStats, stderr: TextIO) -> None:
     print(f"Created {output_path}", file=stderr)
     print(f"Verified: {format_output_stats(stats)}", file=stderr)
+    file_details = format_file_details(output_path, stats.duration)
+    if file_details:
+        print(f"File: {file_details}", file=stderr)
+
+
+def format_file_details(output_path: Path, duration: float | None) -> str | None:
+    details: list[str] = []
+    try:
+        details.append(format_file_size(output_path.stat().st_size))
+    except OSError:
+        pass
+    if duration is not None:
+        details.append(format_duration(duration))
+    return ", ".join(details) if details else None
+
+
+def format_file_size(size: int) -> str:
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds_part = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds_part:02d}"
+    return f"{minutes}:{seconds_part:02d}"
 
 
 def _first_stream(streams: Iterable[object], codec_type: str) -> dict[str, object]:
@@ -1452,6 +1622,8 @@ def run(
     if args.install_ffmpeg:
         install_ffmpeg(stderr=stderr)
         return 0
+    if args.scry:
+        return run_scry(stderr=stderr)
 
     image_path: Path | None
     if args.files:
@@ -1476,14 +1648,21 @@ def run(
         audio_path = require_file(args.audio, "Audio file")
         image_path = require_file(args.image, "Cover image") if args.image is not None else None
     bg_image_path = require_file(args.bg_image, "Background image") if args.bg_image is not None else None
-    ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
+    if args.dry_run:
+        try:
+            ffmpeg = find_ffmpeg()
+        except YaatvError:
+            ffmpeg = "ffmpeg"
+        ffprobe = None
+    else:
+        ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
     metadata = read_audio_metadata(audio_path)
     image_size = validate_image(image_path) if image_path is not None else None
     if bg_image_path is not None:
         validate_image(bg_image_path, "Background image")
     target_size = RESOLUTIONS[args.resolution]
-    output_path = normalize_output_path(args.output if args.output else default_output_path(audio_path, metadata))
-    overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr)
+    output_path = resolve_output_path(audio_path, metadata, args.output, args.output_dir)
+    overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
     audio_plan = choose_audio_plan(metadata, args.pad)
     output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
@@ -1527,6 +1706,8 @@ def run(
             )
         return exit_code
 
+    if ffprobe is None:
+        raise YaatvError("FFprobe was not resolved.")
     stats = probe_output(ffprobe, output_path)
     verify_output_stats(stats, target_size, is_prores=is_prores)
     print_output_summary(output_path, stats, stderr=stderr)

@@ -17,10 +17,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_cli_encodes_valid_mp4_with_ffmpeg(tmp_path: Path) -> None:
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
-    if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg/FFprobe is not installed")
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
 
     audio_path = tmp_path / "tone.wav"
     image_path = tmp_path / "cover.jpg"
@@ -50,38 +47,13 @@ def test_cli_encodes_valid_mp4_with_ffmpeg(tmp_path: Path) -> None:
     assert f"Created {output_path}" in stderr.getvalue()
     assert "Verified: 1920x1080" in stderr.getvalue()
     assert "AAC 48kHz" in stderr.getvalue()
+    assert "File:" in stderr.getvalue()
 
-    duration = subprocess.run(
-        [
-            ffprobe,
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=nw=1:nk=1",
-            str(output_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert float(duration.stdout.strip()) <= 3
-
-    verification = subprocess.run(
-        [ffmpeg, "-v", "error", "-i", str(output_path), "-f", "null", "-"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert verification.returncode == 0, verification.stderr
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
 
 
 def test_cli_encodes_valid_mov_with_ffmpeg(tmp_path: Path) -> None:
-    ffmpeg = shutil.which("ffmpeg")
-    ffprobe = shutil.which("ffprobe")
-    if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg/FFprobe is not installed")
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
 
     audio_path = tmp_path / "tone.wav"
     image_path = tmp_path / "cover.jpg"
@@ -112,7 +84,143 @@ def test_cli_encodes_valid_mov_with_ffmpeg(tmp_path: Path) -> None:
     assert "note: .mov output uses ProRes 422; file sizes will be very large" in stderr.getvalue()
     assert "Verified: 1920x1080, ProRes 422/yuv422p10le" in stderr.getvalue()
     assert "AAC 48kHz" in stderr.getvalue()
+    assert "File:" in stderr.getvalue()
 
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
+
+
+def test_cli_encodes_with_background_image(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+    audio_path = tmp_path / "tone.wav"
+    image_path = tmp_path / "cover.jpg"
+    background_path = tmp_path / "background.jpg"
+    output_path = tmp_path / "background-output.mp4"
+
+    _write_sine_wave(audio_path)
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+    Image.new("RGB", (640, 360), (80, 24, 128)).save(background_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--bg-image",
+            str(background_path),
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Verified: 1920x1080" in stderr.getvalue()
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
+
+
+def test_cli_encodes_with_blurred_background(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+    audio_path = tmp_path / "tone.wav"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "blur-output.mp4"
+
+    _write_sine_wave(audio_path)
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--bg-blur",
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Verified: 1920x1080" in stderr.getvalue()
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
+
+
+def test_cli_encodes_color_only_output(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+    audio_path = tmp_path / "tone.wav"
+    output_path = tmp_path / "color-output.mp4"
+
+    _write_sine_wave(audio_path)
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--bg-color",
+            "white",
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Verified: 1920x1080" in stderr.getvalue()
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
+
+
+def test_cli_encodes_with_padding(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+    audio_path = tmp_path / "tone.wav"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "pad-output.mp4"
+
+    _write_sine_wave(audio_path)
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--pad",
+            "1",
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert "Verified: 1920x1080" in stderr.getvalue()
+    duration = _output_duration(ffprobe, output_path)
+    assert 2 <= duration <= 4
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=4)
+
+
+def _require_ffmpeg_tools() -> tuple[str, str]:
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if ffmpeg is None or ffprobe is None:
+        pytest.skip("FFmpeg/FFprobe is not installed")
+    return ffmpeg, ffprobe
+
+
+def _output_duration(ffprobe: str, output_path: Path) -> float:
     duration = subprocess.run(
         [
             ffprobe,
@@ -128,7 +236,13 @@ def test_cli_encodes_valid_mov_with_ffmpeg(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     )
-    assert float(duration.stdout.strip()) <= 3
+    return float(duration.stdout.strip())
+
+
+def _assert_valid_output(ffmpeg: str, ffprobe: str, output_path: Path, *, max_duration: float) -> None:
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert _output_duration(ffprobe, output_path) <= max_duration
 
     verification = subprocess.run(
         [ffmpeg, "-v", "error", "-i", str(output_path), "-f", "null", "-"],

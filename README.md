@@ -55,6 +55,7 @@ Use one of these release assets:
 - Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe` and runtime files
 - Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux` and runtime files
 - macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos` and runtime files
+- macOS arm64: `yaatv-macos-arm64.zip` containing `yaatv-macos-arm64` and runtime files
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files unless you specifically want the code.
 
@@ -69,6 +70,7 @@ On Windows, run the executable from PowerShell:
 ```powershell
 .\yaatv.exe --version
 .\yaatv.exe --install-ffmpeg
+.\yaatv.exe --scry
 .\yaatv.exe audio.flac cover.jpg
 .\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
@@ -95,7 +97,7 @@ chmod +x ./yaatv-macos
 ./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
 ```
 
-The macOS build is x64 and unsigned. Apple Silicon Macs may need Rosetta installed. `--install-ffmpeg` supports both macOS x64 and Apple Silicon. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
+Use `yaatv-macos-arm64` instead when you download the Apple Silicon ZIP. The macOS builds are unsigned. `--install-ffmpeg` supports both macOS x64 and Apple Silicon. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
 
 ```sh
 xattr -d com.apple.quarantine ./yaatv-macos
@@ -125,12 +127,19 @@ Flags:
 - `--bg-color`: background color as `#RRGGBB` or a named CSS color, default is `black`
 - `--bg-blur`: use a blurred copy of the cover image as the background
 - `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available; `.mov` writes ProRes MOV
+- `--output-dir`: existing directory for the default output filename; do not use it with `-o` or `--output`
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
 - `--dry-run`: print the FFmpeg command without creating an output file
 - `--verbose`: show FFmpeg progress output while encoding
+- `--overwrite`: overwrite an existing output file without prompting
 - `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed bin directory
+- `--scry`: check yaatv, FFmpeg, FFprobe, and output directory setup
+
+## Troubleshooting setup
+
+Run `yaatv --scry` to check whether yaatv can find FFmpeg and FFprobe. The check also reports the yaatv version, Python version, app-managed bin directory, PATH tools, and whether the current directory is writable.
 
 ## Source files
 
@@ -169,7 +178,8 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 - Video is 1fps. The audio plays at normal speed; the image does not animate.
 - Video is encoded for broad playback compatibility and YouTube uploads.
 - Completed files are checked after encoding and summarized before yaatv exits.
-- Existing output files require confirmation before overwrite.
+- The final summary shows the created file, verified media profile, and file details when they are available.
+- Existing output files require confirmation before overwrite. Use `--overwrite` only when a script should replace the output deliberately.
 
 Low-quality source audio, unusual file extensions, and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
 
@@ -223,10 +233,10 @@ python -m twine check dist/*
 
 ## Publishing
 
-Tagging a version that starts with `v` builds the Windows, Linux, and macOS assets, then attaches them to a GitHub release.
+Tagging a version that starts with `v` builds the Windows, Linux, macOS x64, and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.3
+git tag v0.5.4
 git push origin main --tags
 ```
 

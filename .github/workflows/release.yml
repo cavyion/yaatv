@@ -29,6 +29,10 @@ jobs:
             package_name: yaatv-macos-x64
             executable_name: yaatv-macos
             extension: ""
+          - os: macos-15
+            package_name: yaatv-macos-arm64
+            executable_name: yaatv-macos-arm64
+            extension: ""
 
     steps:
       - name: Check out repository
@@ -76,10 +80,15 @@ jobs:
           set -euo pipefail
           python - <<'PY' > FFMPEG_BUILD_INFO.txt
           import os
+          import platform
 
           from yaatv.cli import (
               LINUX_FFMPEG_ARCHIVE_SHA256,
               LINUX_FFMPEG_ARCHIVE_URL,
+              MACOS_ARM64_FFMPEG_ARCHIVE_SHA256,
+              MACOS_ARM64_FFMPEG_ARCHIVE_URL,
+              MACOS_ARM64_FFPROBE_ARCHIVE_SHA256,
+              MACOS_ARM64_FFPROBE_ARCHIVE_URL,
               MACOS_FFMPEG_ARCHIVE_SHA256,
               MACOS_FFMPEG_ARCHIVE_URL,
               MACOS_FFPROBE_ARCHIVE_SHA256,
@@ -106,10 +115,16 @@ jobs:
               print("Install path: $XDG_DATA_HOME/yaatv/bin, or ~/.local/share/yaatv/bin")
               print("Extracted files: ffmpeg, ffprobe")
           elif runner_os == "macOS":
-              print(f"Installer ffmpeg source: {MACOS_FFMPEG_ARCHIVE_URL}")
-              print(f"Installer ffmpeg sha256: {MACOS_FFMPEG_ARCHIVE_SHA256}")
-              print(f"Installer ffprobe source: {MACOS_FFPROBE_ARCHIVE_URL}")
-              print(f"Installer ffprobe sha256: {MACOS_FFPROBE_ARCHIVE_SHA256}")
+              if platform.machine().lower() in {"arm64", "aarch64"}:
+                  print(f"Installer ffmpeg source: {MACOS_ARM64_FFMPEG_ARCHIVE_URL}")
+                  print(f"Installer ffmpeg sha256: {MACOS_ARM64_FFMPEG_ARCHIVE_SHA256}")
+                  print(f"Installer ffprobe source: {MACOS_ARM64_FFPROBE_ARCHIVE_URL}")
+                  print(f"Installer ffprobe sha256: {MACOS_ARM64_FFPROBE_ARCHIVE_SHA256}")
+              else:
+                  print(f"Installer ffmpeg source: {MACOS_FFMPEG_ARCHIVE_URL}")
+                  print(f"Installer ffmpeg sha256: {MACOS_FFMPEG_ARCHIVE_SHA256}")
+                  print(f"Installer ffprobe source: {MACOS_FFPROBE_ARCHIVE_URL}")
+                  print(f"Installer ffprobe sha256: {MACOS_FFPROBE_ARCHIVE_SHA256}")
               print("Install path: ~/Library/Application Support/yaatv/bin")
               print("Extracted files: ffmpeg, ffprobe")
           else:
