@@ -91,6 +91,11 @@ main {
   padding: 64px 0 54px;
 }
 
+.page-hero {
+  max-width: 760px;
+  padding: 64px 0 48px;
+}
+
 .project-label {
   margin: 0 0 16px;
   color: var(--accent);
@@ -336,6 +341,24 @@ tbody tr:last-child td {
   padding-bottom: 58px;
 }
 
+.faq-list {
+  display: grid;
+  gap: 26px;
+}
+
+.faq-item {
+  max-width: 820px;
+}
+
+.faq-item h2 {
+  font-size: 1.35rem;
+}
+
+.faq-item p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
 .site-footer {
   display: flex;
   flex-wrap: wrap;
@@ -374,6 +397,10 @@ tbody tr:last-child td {
     padding: 46px 0 42px;
   }
 
+  .page-hero {
+    padding: 46px 0 38px;
+  }
+
   h1 {
     font-size: 3.3rem;
   }
@@ -398,6 +425,10 @@ tbody tr:last-child td {
   }
 
   .hero {
+    padding: 28px 0 30px;
+  }
+
+  .page-hero {
     padding: 28px 0 30px;
   }
 
