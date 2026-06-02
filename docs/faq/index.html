@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Answers to common yaatv questions about YouTube uploads, FFmpeg setup, output size, cover art, ProRes MOV files, and drag-and-drop mode."
+      content="Answers to common yaatv questions about YouTube uploads, FFmpeg setup, output size, aspect ratio, cover art, ProRes MOV files, and drag-and-drop mode."
     >
-    <meta name="theme-color" content="#f6f8fb">
+    <meta name="theme-color" content="#07110f">
     <link rel="canonical" href="https://yaatv.org/faq/">
     <meta property="og:site_name" content="yaatv">
     <meta property="og:type" content="website">
@@ -43,7 +43,7 @@
           },
           {
             "@type": "Question",
-            "name": "Does yaatv run locally?",
+            "name": "Is yaatv local?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Yes. yaatv is a local command-line app. After FFmpeg and FFprobe are installed, normal encoding runs on your computer."
@@ -51,7 +51,7 @@
           },
           {
             "@type": "Question",
-            "name": "Does yaatv need FFmpeg?",
+            "name": "Is FFmpeg required?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Yes. yaatv uses FFmpeg to encode video and FFprobe to check media files. Release ZIPs do not bundle those tools. On supported systems, yaatv can install them with yaatv --install-ffmpeg."
@@ -59,7 +59,7 @@
           },
           {
             "@type": "Question",
-            "name": "Why is my output file large?",
+            "name": "Why are output files large?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Higher resolutions, longer audio files, and MOV output create larger files. MP4 output is usually smaller. MOV output uses ProRes 422 for workflows that need MOV files."
@@ -75,7 +75,7 @@
           },
           {
             "@type": "Question",
-            "name": "Why does yaatv add padding around cover art?",
+            "name": "Why add padding around cover art?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "yaatv preserves the image aspect ratio. It pads the frame instead of stretching the cover image."
@@ -83,7 +83,7 @@
           },
           {
             "@type": "Question",
-            "name": "Can I drag files onto yaatv.exe?",
+            "name": "Can you drag files onto yaatv.exe?",
             "acceptedAnswer": {
               "@type": "Answer",
               "text": "Yes. On Windows, you can drag one audio file and one static cover image onto yaatv.exe. Drag-and-drop mode uses default settings."
@@ -107,10 +107,10 @@
           },
           {
             "@type": "Question",
-            "name": "What resolution should I use?",
+            "name": "What resolution and aspect ratio should you use?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "The default is 1080p. Use --resolution 1440p or --resolution 4k when you want a larger output file. Use cover art at least as large as the chosen output resolution when possible."
+              "text": "The default is 1080p at 16:9. Use --resolution 1440p or --resolution 4k when you want a larger output file. Use --aspect square for square uploads, or --aspect 9:16 for vertical uploads."
             }
           }
         ]
@@ -120,14 +120,12 @@
   <body>
     <header class="site-header">
       <a class="brand" href="../" aria-label="yaatv home">
-        <span>yaatv</span>
+        <span class="brand-name">yaatv</span>
+        <span class="brand-description">Yet Another Audio To Video (tool)</span>
       </a>
       <nav class="site-nav" aria-label="Primary">
-        <a href="../#files">Files</a>
         <a href="../download/">Download</a>
-        <a href="../#usage">Usage</a>
         <a href="../faq/">FAQ</a>
-        <a href="../#output">Output</a>
         <a href="https://github.com/cavyion/yaatv">GitHub</a>
       </nav>
     </header>
@@ -152,7 +150,7 @@
         </article>
 
         <article class="faq-item">
-          <h2>Does yaatv run locally?</h2>
+          <h2>Is yaatv local?</h2>
           <p>
             Yes. yaatv is a local command-line app. After FFmpeg and FFprobe are installed, normal encoding runs on
             your computer.
@@ -160,7 +158,7 @@
         </article>
 
         <article class="faq-item">
-          <h2>Does yaatv need FFmpeg?</h2>
+          <h2>Is FFmpeg required?</h2>
           <p>
             Yes. yaatv uses FFmpeg to encode video and FFprobe to check media files. Release ZIPs do not bundle those
             tools. On supported systems, yaatv can install them with <code>yaatv --install-ffmpeg</code>.
@@ -168,7 +166,7 @@
         </article>
 
         <article class="faq-item">
-          <h2>Why is my output file large?</h2>
+          <h2>Why are output files large?</h2>
           <p>
             Higher resolutions, longer audio files, and MOV output create larger files. MP4 output is usually smaller.
             MOV output uses ProRes 422 for workflows that need MOV files.
@@ -183,7 +181,7 @@
         </article>
 
         <article class="faq-item">
-          <h2>Why does yaatv add padding around cover art?</h2>
+          <h2>Why add padding around cover art?</h2>
           <p>
             yaatv preserves the image aspect ratio. It pads the frame instead of stretching the cover image. By
             default, the padding is black.
@@ -191,7 +189,7 @@
         </article>
 
         <article class="faq-item">
-          <h2>Can I drag files onto yaatv.exe?</h2>
+          <h2>Can you drag files onto yaatv.exe?</h2>
           <p>
             Yes. On Windows, you can drag one audio file and one static cover image onto <code>yaatv.exe</code>.
             Drag-and-drop mode uses default settings.
@@ -215,10 +213,11 @@
         </article>
 
         <article class="faq-item">
-          <h2>What resolution should I use?</h2>
+          <h2>What resolution and aspect ratio should you use?</h2>
           <p>
-            The default is 1080p. Use <code>--resolution 1440p</code> or <code>--resolution 4k</code> when you want a
-            larger output file. Use cover art at least as large as the chosen output resolution when possible.
+            The default is 1080p at 16:9. Use <code>--resolution 1440p</code> or <code>--resolution 4k</code> when you
+            want a larger output file. Use <code>--aspect square</code> for square uploads, or
+            <code>--aspect 9:16</code> for vertical uploads.
           </p>
         </article>
       </section>
@@ -227,8 +226,6 @@
     <footer class="site-footer">
       <span>yaatv.org</span>
       <a href="../">Home</a>
-      <a href="../download/">Download guide</a>
-      <a href="https://github.com/cavyion/yaatv/releases/latest">Latest release</a>
     </footer>
   </body>
 </html>

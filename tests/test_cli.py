@@ -43,6 +43,7 @@ from yaatv.cli import (
     is_high_quality_aac,
     main,
     normalize_output_path,
+    output_size,
     pad_seconds,
     parse_args,
     probe_output,
@@ -194,12 +195,19 @@ def test_run_scry_does_not_require_audio_or_image(monkeypatch: pytest.MonkeyPatc
 
 
 def test_parse_args_accepts_positional_files() -> None:
-    args = parse_args(["cover.JPG", "track.FLAC", "--resolution", "4k"])
+    args = parse_args(["cover.JPG", "track.FLAC", "--resolution", "4k", "--aspect", "square"])
 
     assert args.files == [Path("cover.JPG"), Path("track.FLAC")]
     assert args.audio is None
     assert args.image is None
     assert args.resolution == "4k"
+    assert args.aspect == "square"
+
+
+def test_output_size_maps_resolution_and_aspect() -> None:
+    assert output_size("1080p", "16:9") == (1920, 1080)
+    assert output_size("1440p", "square") == (1440, 1440)
+    assert output_size("4k", "9:16") == (2160, 3840)
 
 
 def test_parse_args_accepts_scry_without_files() -> None:
@@ -376,6 +384,58 @@ def test_background_color_changes_default_pad_color() -> None:
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:0xffffff,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def test_square_command_uses_square_canvas() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=output_size("1080p", "square"),
+        audio_plan=plan,
+        overwrite=False,
+    )
+
+    assert command[command.index("-vf") + 1] == (
+        "scale=1080:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        "pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def test_vertical_background_blur_command_uses_vertical_canvas() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=output_size("1080p", "9:16"),
+        audio_plan=plan,
+        overwrite=False,
+        bg_blur=True,
+    )
+
+    assert command[command.index("-filter_complex") + 1] == (
+        "[0:v]split[s1][s2];"
+        "[s1]scale=1080:1920:force_original_aspect_ratio=increase:out_range=tv,"
+        "crop=1080:1920,boxblur=20:5[bg];"
+        "[s2]scale=1080:1920:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
+        "format=yuv420p,"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
 
 
@@ -940,6 +1000,47 @@ def test_run_quick_mode_dry_run_uses_classified_files(
     assert str(audio_path) in command
     assert "pad=2560:1440:(ow-iw)/2:(oh-ih)/2:black" in command
     assert "Artist - Title.mp4" in command
+
+
+def test_run_dry_run_uses_selected_aspect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    stderr = StringIO()
+
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    assert run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--aspect",
+            "9:16",
+            "--dry-run",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    command = stderr.getvalue()
+    assert "scale=1080:1920:force_original_aspect_ratio=decrease:out_range=tv" in command
+    assert "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black" in command
 
 
 def test_run_quick_mode_encodes_with_custom_output(
@@ -1533,6 +1634,28 @@ def test_verify_output_stats_accepts_expected_youtube_profile() -> None:
 
     assert format_output_stats(stats) == (
         "1920x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
+    )
+
+
+def test_verify_output_stats_accepts_square_profile() -> None:
+    stats = OutputStats(
+        width=1080,
+        height=1080,
+        video_codec="h264",
+        pixel_format="yuv420p",
+        color_range="tv",
+        color_space="bt709",
+        color_transfer="bt709",
+        color_primaries="bt709",
+        frame_rate=1.0,
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+    )
+
+    verify_output_stats(stats, output_size("1080p", "square"))
+
+    assert format_output_stats(stats) == (
+        "1080x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
     )
 
 

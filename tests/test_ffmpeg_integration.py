@@ -52,6 +52,39 @@ def test_cli_encodes_valid_mp4_with_ffmpeg(tmp_path: Path) -> None:
     _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
 
 
+def test_cli_encodes_square_mp4_with_ffmpeg(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+
+    audio_path = tmp_path / "tone.wav"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "square.mp4"
+
+    _write_sine_wave(audio_path)
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--aspect",
+            "square",
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+    assert "Verified: 1080x1080" in stderr.getvalue()
+    _assert_valid_output(ffmpeg, ffprobe, output_path, max_duration=3)
+
+
 def test_cli_encodes_valid_mov_with_ffmpeg(tmp_path: Path) -> None:
     ffmpeg, ffprobe = _require_ffmpeg_tools()
 

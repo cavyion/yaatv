@@ -34,12 +34,12 @@ The same mode works from a terminal with plain file arguments:
 yaatv audio.flac cover.jpg
 ```
 
-Use PowerShell or a terminal with flags when you want to choose the output path, resolution, background, padding, or verbose output.
+Use PowerShell or a terminal with flags when you want to choose the output path, aspect ratio, resolution, background, padding, or verbose output.
 
 ## Recommendations
 
-- Use a cover image at least as large as your output resolution (1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k).
-- Square album art works well and is the most common format. 16:9 images fill the entire frame without bars.
+- Use a cover image at least as large as your output size. For the default 16:9 output, that means 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k.
+- Square album art works well. Use `--aspect square` for a square upload, or `--aspect 9:16` for a vertical upload.
 - Use WAV, FLAC, or high-bitrate AAC for the best audio quality.
 
 Website and docs: <https://yaatv.org>
@@ -75,7 +75,7 @@ On Windows, run the executable from PowerShell:
 .\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
 
-For the quickest Windows run, drag one audio file and one cover image onto `yaatv.exe`. Drag-and-drop mode uses default settings. Use PowerShell when you want to choose the output path, resolution, background, padding, or verbose output.
+For the quickest Windows run, drag one audio file and one cover image onto `yaatv.exe`. Drag-and-drop mode uses default settings. Use PowerShell when you want to choose the output path, aspect ratio, resolution, background, padding, or verbose output.
 
 If FFmpeg is missing during an interactive run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `--install-ffmpeg`.
 
@@ -112,10 +112,17 @@ yaatv audio.flac cover.jpg
 yaatv -a audio.flac -i cover.jpg
 ```
 
-Choose the output file and resolution:
+Choose the output file, aspect ratio, and resolution:
 
 ```sh
 yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
+```
+
+Choose a square or vertical canvas:
+
+```sh
+yaatv -a track.flac -i cover.jpg --aspect square
+yaatv -a short.wav -i cover.jpg --aspect 9:16
 ```
 
 Flags:
@@ -129,6 +136,7 @@ Flags:
 - `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available; `.mov` writes ProRes MOV
 - `--output-dir`: existing directory for the default output filename; do not use it with `-o` or `--output`
 - `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
+- `--aspect`: `16:9`, `square`, or `9:16`, default is `16:9`
 - `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
 - `--no-warn`: hide low source quality warnings
 - `--dry-run`: print the FFmpeg command without creating an output file
@@ -153,8 +161,8 @@ Audio:
 
 Cover image:
 
-- Use an image at least as large as your output resolution: 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k. Images smaller than the output get upscaled and may look soft.
-- Square album art gets black bars on the left and right to fill the 16:9 frame. 16:9 images fill the entire frame. Portrait images get black bars on the top and bottom.
+- Use an image at least as large as your output size. For the default 16:9 output, that means 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k. Square output uses 1080x1080, 1440x1440, or 2160x2160. Vertical output uses 1080x1920, 1440x2560, or 2160x3840.
+- Square album art gets black bars on the left and right with the default 16:9 aspect. Use `--aspect square` to make a square video, or `--aspect 9:16` to make a vertical video.
 - Use JPG, PNG, or static WebP. Animated images are rejected.
 
 Visual background:
@@ -175,13 +183,14 @@ yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv create
 - MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
 - Audio is encoded or copied into a format suitable for upload. High-quality AAC can be copied directly when no padding is needed.
 - Cover images keep their aspect ratio. yaatv adds a background instead of stretching.
+- `--aspect` chooses a 16:9, square, or 9:16 canvas.
 - Video is 1fps. The audio plays at normal speed; the image does not animate.
 - Video is encoded for broad playback compatibility and YouTube uploads.
 - Completed files are checked after encoding and summarized before yaatv exits.
 - The final summary shows the created file, verified media profile, and file details when they are available.
 - Existing output files require confirmation before overwrite. Use `--overwrite` only when a script should replace the output deliberately.
 
-Low-quality source audio, unusual file extensions, and cover images smaller than the target resolution print warnings unless `--no-warn` is set.
+Low-quality source audio, unusual file extensions, and cover images smaller than the target output size print warnings unless `--no-warn` is set.
 
 `--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
 
@@ -236,7 +245,7 @@ python -m twine check dist/*
 Tagging a version that starts with `v` builds the Windows, Linux, macOS x64, and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.4
+git tag v0.5.5
 git push origin main --tags
 ```
 

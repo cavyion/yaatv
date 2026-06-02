@@ -1,27 +1,22 @@
 :root {
-  color-scheme: light;
-  --bg: #f5efd8;
-  --surface: #eee8d5;
-  --surface-soft: #e6dec8;
-  --text: #073642;
-  --muted: #586e75;
-  --subtle: #657b83;
-  --line: #d8cfb7;
-  --code-bg: #002b36;
-  --code-text: #93d7c6;
-  --accent: #2d7f88;
-  --accent-strong: #12616b;
-  --link: #236caa;
-  --shadow: rgba(7, 54, 66, 0.12);
+  color-scheme: dark;
+  --bg: #111111;
+  --surface: #181818;
+  --surface-soft: #222222;
+  --text: #eeeeee;
+  --muted: #b8b8b8;
+  --subtle: #8a8a8a;
+  --line: #303030;
+  --code-bg: #050505;
+  --code-text: #e6e6e6;
+  --accent: #eeeeee;
+  --accent-strong: #ffffff;
+  --link: #9cc7ff;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
   box-sizing: border-box;
-}
-
-html {
-  scroll-behavior: smooth;
 }
 
 body {
@@ -37,34 +32,49 @@ a {
 }
 
 .site-header {
-  position: sticky;
-  top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 14px 32px;
-  background: rgba(245, 239, 216, 0.94);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  width: min(900px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 18px 0 12px;
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(12px);
 }
 
 .brand {
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  gap: 3px;
+  justify-self: center;
+  justify-items: center;
   color: var(--text);
+  text-align: center;
+  text-decoration: none;
+}
+
+.brand-name {
   font-size: 1.05rem;
   font-weight: 750;
   letter-spacing: 0;
-  text-decoration: none;
+}
+
+.brand-description {
+  color: var(--subtle);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .site-nav {
   display: flex;
   align-items: center;
-  gap: 22px;
-  font-size: 0.95rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
 }
 
 .site-nav a {
@@ -78,17 +88,13 @@ a {
 }
 
 main {
-  width: min(1120px, calc(100% - 40px));
+  width: min(900px, calc(100% - 40px));
   margin: 0 auto;
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.02fr) minmax(320px, 0.98fr);
-  gap: 48px;
-  align-items: center;
-  min-height: 600px;
-  padding: 64px 0 54px;
+.plain-page {
+  max-width: 760px;
+  padding: 52px 0 58px;
 }
 
 .page-hero {
@@ -98,7 +104,7 @@ main {
 
 .project-label {
   margin: 0 0 16px;
-  color: var(--accent);
+  color: var(--muted);
   font-size: 0.95rem;
   font-weight: 700;
 }
@@ -111,25 +117,25 @@ p {
 
 h1 {
   max-width: 680px;
-  margin-bottom: 18px;
-  font-size: 4.6rem;
-  line-height: 0.96;
+  margin-bottom: 14px;
+  font-size: 3.1rem;
+  line-height: 1;
   letter-spacing: 0;
 }
 
 h2 {
-  margin-bottom: 10px;
-  font-size: 2rem;
+  margin: 34px 0 10px;
+  font-size: 1.35rem;
   line-height: 1.15;
   letter-spacing: 0;
 }
 
 .lead {
   max-width: 640px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   color: var(--muted);
-  font-size: 1.24rem;
-  line-height: 1.55;
+  font-size: 1.05rem;
+  line-height: 1.5;
 }
 
 .actions {
@@ -137,6 +143,10 @@ h2 {
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
+}
+
+.command + .actions {
+  margin-top: 14px;
 }
 
 .button {
@@ -154,13 +164,13 @@ h2 {
 }
 
 .button:hover {
-  border-color: #93a1a1;
+  border-color: var(--accent);
 }
 
 .button-primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fdf6e3;
+  color: var(--bg);
 }
 
 .button-primary:hover {
@@ -168,17 +178,27 @@ h2 {
   background: var(--accent-strong);
 }
 
-.command,
-.examples pre {
+.command {
+  position: relative;
   margin: 0;
+  padding: 36px 18px 16px;
   overflow-x: auto;
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
   background: var(--code-bg);
   color: var(--code-text);
 }
 
-.command {
-  padding: 16px 18px;
+.command::before {
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  color: var(--subtle);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  content: "command";
 }
 
 code {
@@ -192,41 +212,25 @@ p code {
 }
 
 pre code {
+  display: block;
   color: var(--code-text);
+  white-space: pre;
+}
+
+.command .prompt {
+  color: var(--subtle);
 }
 
 td code,
 li code {
   padding: 2px 5px;
   border-radius: 4px;
-  background: #e3dcc6;
-  color: #073642;
+  background: var(--surface-soft);
+  color: var(--text);
 }
 
 td code {
   white-space: nowrap;
-}
-
-.demo {
-  margin: 0;
-}
-
-.demo video {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--code-bg);
-  box-shadow: 0 18px 46px var(--shadow);
-}
-
-.demo figcaption {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--subtle);
-  font-size: 0.92rem;
 }
 
 .section {
@@ -240,7 +244,6 @@ td code {
 }
 
 .section-header p,
-.source p,
 .note {
   color: var(--muted);
   line-height: 1.65;
@@ -251,29 +254,6 @@ td code {
   grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
   gap: 42px;
   align-items: start;
-}
-
-.file-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 28px;
-}
-
-.file-item {
-  padding-top: 14px;
-  border-top: 2px solid var(--accent);
-}
-
-.file-item h3 {
-  margin: 0 0 8px;
-  font-size: 1.08rem;
-  line-height: 1.25;
-}
-
-.file-item p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
 }
 
 .table-wrap {
@@ -315,32 +295,6 @@ tbody tr:last-child td {
   margin: 16px 0 0;
 }
 
-.examples {
-  display: grid;
-  gap: 10px;
-}
-
-.examples pre {
-  padding: 14px 16px;
-}
-
-.check-list {
-  display: grid;
-  gap: 12px;
-  max-width: 880px;
-  margin: 0;
-  padding-left: 20px;
-}
-
-.check-list li {
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-.source {
-  padding-bottom: 58px;
-}
-
 .faq-list {
   display: grid;
   gap: 26px;
@@ -372,29 +326,24 @@ tbody tr:last-child td {
 
 @media (max-width: 860px) {
   .site-header {
-    align-items: flex-start;
-    padding: 14px 20px;
+    width: min(100% - 32px, 680px);
+    padding: 16px 0 12px;
   }
 
   .site-nav {
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 10px 16px;
+    gap: 12px;
   }
 
   main {
     width: min(100% - 32px, 680px);
   }
 
-  .hero,
-  .two-column,
-  .file-grid {
+  .two-column {
     grid-template-columns: 1fr;
   }
 
-  .hero {
-    min-height: 0;
-    padding: 46px 0 42px;
+  .plain-page {
+    padding: 42px 0 48px;
   }
 
   .page-hero {
@@ -402,21 +351,26 @@ tbody tr:last-child td {
   }
 
   h1 {
-    font-size: 3.3rem;
+    font-size: 2.8rem;
   }
 }
 
 @media (max-width: 640px) {
   .site-header {
-    padding: 12px 16px;
+    width: min(100% - 20px, 680px);
+    padding: 14px 0 10px;
   }
 
-  .brand {
+  .brand-name {
     font-size: 0.95rem;
   }
 
+  .brand-description {
+    font-size: 0.78rem;
+  }
+
   .site-nav {
-    gap: 12px 10px;
+    gap: 10px;
     font-size: 0.85rem;
   }
 
@@ -424,8 +378,8 @@ tbody tr:last-child td {
     width: min(100% - 20px, 680px);
   }
 
-  .hero {
-    padding: 28px 0 30px;
+  .plain-page {
+    padding: 30px 0 36px;
   }
 
   .page-hero {
@@ -434,10 +388,6 @@ tbody tr:last-child td {
 
   h1 {
     font-size: 2.5rem;
-  }
-
-  h2 {
-    font-size: 1.6rem;
   }
 
   .lead {
@@ -450,12 +400,7 @@ tbody tr:last-child td {
   }
 
   .command {
-    padding: 12px 14px;
-    font-size: 0.82rem;
-  }
-
-  .examples pre {
-    padding: 10px 12px;
+    padding: 34px 14px 12px;
     font-size: 0.82rem;
   }
 
@@ -465,10 +410,6 @@ tbody tr:last-child td {
 
   .section {
     padding: 28px 0;
-  }
-
-  .check-list {
-    padding-left: 16px;
   }
 
   th,
@@ -491,19 +432,21 @@ tbody tr:last-child td {
 
 @media (max-width: 400px) {
   .site-header {
-    flex-wrap: wrap;
-    padding: 10px 12px;
+    width: min(100% - 16px, 680px);
+    padding: 12px 0 10px;
   }
 
-  .brand {
+  .brand-name {
     font-size: 0.9rem;
   }
 
+  .brand-description {
+    font-size: 0.74rem;
+  }
+
   .site-nav {
-    width: 100%;
-    justify-content: flex-start;
     font-size: 0.8rem;
-    gap: 8px 12px;
+    gap: 8px 10px;
   }
 
   main {
@@ -514,21 +457,13 @@ tbody tr:last-child td {
     font-size: 2rem;
   }
 
-  h2 {
-    font-size: 1.35rem;
-  }
-
   .lead {
     font-size: 0.94rem;
   }
 
   .command {
-    padding: 10px 12px;
+    padding: 32px 12px 10px;
     font-size: 0.78rem;
-  }
-
-  .examples pre {
-    padding: 8px 10px;
   }
 
   code {
@@ -539,11 +474,4 @@ tbody tr:last-child td {
     padding: 22px 0;
   }
 
-  .file-grid {
-    gap: 18px;
-  }
-
-  .file-item {
-    padding-top: 10px;
-  }
 }

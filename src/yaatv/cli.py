@@ -24,10 +24,24 @@ from PIL import Image, ImageColor, UnidentifiedImageError
 
 from . import __version__
 
+DEFAULT_ASPECT = "16:9"
 RESOLUTIONS = {
     "1080p": (1920, 1080),
     "1440p": (2560, 1440),
     "4k": (3840, 2160),
+}
+OUTPUT_SIZES = {
+    DEFAULT_ASPECT: RESOLUTIONS,
+    "square": {
+        "1080p": (1080, 1080),
+        "1440p": (1440, 1440),
+        "4k": (2160, 2160),
+    },
+    "9:16": {
+        "1080p": (1080, 1920),
+        "1440p": (1440, 2560),
+        "4k": (2160, 3840),
+    },
 }
 
 COPY_AAC_MIN_BITRATE = 320_000
@@ -190,6 +204,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
   yaatv audio.flac cover.jpg
   yaatv -a audio.flac -i cover.jpg -o output.mp4
   yaatv -a episode.wav -i cover.jpg --resolution 1440p
+  yaatv -a short.wav -i cover.jpg --aspect 9:16
   yaatv -a mix.wav -i cover.jpg --bg-blur
   yaatv -a session.mp3 -i art.jpg -o upload.mov
   yaatv --install-ffmpeg
@@ -242,6 +257,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Output resolution: 1080p, 1440p, or 4k",
     )
     parser.add_argument(
+        "--aspect",
+        choices=tuple(OUTPUT_SIZES),
+        default=DEFAULT_ASPECT,
+        help="Output aspect ratio: 16:9, square, or 9:16",
+    )
+    parser.add_argument(
         "--pad",
         default=0.0,
         type=pad_seconds,
@@ -287,6 +308,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv_list)
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
     return args
+
+
+def output_size(resolution: str, aspect: str) -> tuple[int, int]:
+    return OUTPUT_SIZES[aspect][resolution]
 
 
 def require_file(path: Path, label: str) -> Path:
@@ -1660,7 +1685,7 @@ def run(
     image_size = validate_image(image_path) if image_path is not None else None
     if bg_image_path is not None:
         validate_image(bg_image_path, "Background image")
-    target_size = RESOLUTIONS[args.resolution]
+    target_size = output_size(args.resolution, args.aspect)
     output_path = resolve_output_path(audio_path, metadata, args.output, args.output_dir)
     overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
     audio_plan = choose_audio_plan(metadata, args.pad)
@@ -1742,7 +1767,11 @@ def _windows_parent_process_name() -> str | None:
             ("szExeFile", wintypes.WCHAR * 260),
         ]
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        return None
+
+    kernel32 = windll("kernel32", use_last_error=True)
     snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
     if snapshot == wintypes.HANDLE(-1).value:
         return None
