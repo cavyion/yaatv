@@ -637,19 +637,9 @@ def install_windows_ffmpeg(
         archive_path = temp_dir / "ffmpeg.zip"
         staging_dir = temp_dir / "bin"
 
-        print(f"Downloading FFmpeg from {archive_url}", file=stderr)
-        try:
-            _download_url(archive_url, archive_path)
-        except OSError as exc:
-            raise YaatvError(f"Could not download FFmpeg: {exc}") from exc
-
-        _verify_sha256(archive_path, expected_sha256)
+        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg", stderr)
         _extract_windows_ffmpeg_tools(archive_path, staging_dir)
-
-        _install_staged_tools(staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False)
-
-    print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
-    return install_dir
+        return _finish_ffmpeg_install(staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False, stderr=stderr)
 
 
 def install_linux_ffmpeg(
@@ -669,18 +659,9 @@ def install_linux_ffmpeg(
         archive_path = temp_dir / "ffmpeg.tar.xz"
         staging_dir = temp_dir / "bin"
 
-        print(f"Downloading FFmpeg from {archive_url}", file=stderr)
-        try:
-            _download_url(archive_url, archive_path)
-        except OSError as exc:
-            raise YaatvError(f"Could not download FFmpeg: {exc}") from exc
-
-        _verify_sha256(archive_path, expected_sha256)
+        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg", stderr)
         _extract_tar_ffmpeg_tools(archive_path, staging_dir)
-        _install_staged_tools(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True)
-
-    print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
-    return install_dir
+        return _finish_ffmpeg_install(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr)
 
 
 def install_macos_ffmpeg(
@@ -719,17 +700,37 @@ def install_macos_ffmpeg(
         )
 
         for archive_url, archive_path, expected_sha256, tool_name in downloads:
-            print(f"Downloading {tool_name} from {archive_url}", file=stderr)
-            try:
-                _download_url(archive_url, archive_path)
-            except OSError as exc:
-                raise YaatvError(f"Could not download {tool_name}: {exc}") from exc
-
-            _verify_sha256(archive_path, expected_sha256)
+            _download_and_verify_archive(archive_url, archive_path, expected_sha256, tool_name, stderr)
             _extract_zip_tool(archive_path, staging_dir, tool_name)
 
-        _install_staged_tools(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True)
+        return _finish_ffmpeg_install(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr)
 
+
+def _download_and_verify_archive(
+    url: str,
+    archive_path: Path,
+    expected_sha256: str,
+    label: str,
+    stderr: TextIO,
+) -> None:
+    print(f"Downloading {label} from {url}", file=stderr)
+    try:
+        _download_url(url, archive_path)
+    except OSError as exc:
+        raise YaatvError(f"Could not download {label}: {exc}") from exc
+
+    _verify_sha256(archive_path, expected_sha256)
+
+
+def _finish_ffmpeg_install(
+    staging_dir: Path,
+    install_dir: Path,
+    tool_names: Iterable[str],
+    *,
+    executable: bool,
+    stderr: TextIO,
+) -> Path:
+    _install_staged_tools(staging_dir, install_dir, tool_names, executable=executable)
     print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
     return install_dir
 
@@ -1097,6 +1098,91 @@ def input_format_warnings(audio_path: Path, image_path: Path | None, bg_image_pa
     return warnings
 
 
+def _video_format(is_prores: bool) -> str:
+    return "yuv422p10le" if is_prores else "yuv420p"
+
+
+def _video_tail(is_prores: bool) -> str:
+    return (
+        f"format={_video_format(is_prores)},"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def _video_codec_args(is_prores: bool) -> tuple[str, ...]:
+    if is_prores:
+        return (
+            "-c:v",
+            "prores_ks",
+            "-profile:v",
+            "2",
+            "-pix_fmt",
+            "yuv422p10le",
+            "-vendor",
+            "apl0",
+        )
+    return (
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "16",
+        "-pix_fmt",
+        "yuv420p",
+    )
+
+
+def _color_metadata_args() -> tuple[str, ...]:
+    return (
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+    )
+
+
+def _faststart_args(is_prores: bool) -> tuple[str, ...]:
+    return () if is_prores else ("-movflags", "+faststart")
+
+
+def _output_format_args(is_prores: bool) -> tuple[str, ...]:
+    return ("-f", "mov") if is_prores else ()
+
+
+def _duration_args(output_duration: float | None) -> tuple[str, ...]:
+    return ("-t", format_seconds(output_duration)) if output_duration is not None else ()
+
+
+def _encode_args(audio_plan: AudioPlan, is_prores: bool) -> tuple[str, ...]:
+    return (
+        *_video_codec_args(is_prores),
+        *_color_metadata_args(),
+        *audio_plan.codec_args,
+        *audio_plan.filter_args,
+    )
+
+
+def _finish_output_args(
+    output_duration: float | None,
+    is_prores: bool,
+    output_path: Path,
+    *,
+    include_shortest: bool,
+) -> tuple[str, ...]:
+    return (
+        *(("-shortest",) if include_shortest else ()),
+        *_faststart_args(is_prores),
+        *_duration_args(output_duration),
+        *_output_format_args(is_prores),
+        str(output_path),
+    )
+
+
 def build_ffmpeg_command(
     ffmpeg: str,
     audio_path: Path,
@@ -1112,36 +1198,7 @@ def build_ffmpeg_command(
     bg_blur: bool = False,
 ) -> list[str]:
     width, height = target_size
-    video_format = "yuv422p10le" if is_prores else "yuv420p"
-    video_tail = (
-        f"format={video_format},"
-        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
-    )
-    video_codec_args = (
-        (
-            "-c:v",
-            "prores_ks",
-            "-profile:v",
-            "2",
-            "-pix_fmt",
-            "yuv422p10le",
-            "-vendor",
-            "apl0",
-        )
-        if is_prores
-        else (
-            "-c:v",
-            "libx264",
-            "-preset",
-            "slow",
-            "-crf",
-            "16",
-            "-pix_fmt",
-            "yuv420p",
-        )
-    )
-    output_format_args = ("-f", "mov") if is_prores else ()
-    faststart_args = () if is_prores else ("-movflags", "+faststart")
+    video_tail = _video_tail(is_prores)
 
     if image_path is None:
         color_source = f"color=c={bg_color}:s={width}x{height}"
@@ -1160,23 +1217,13 @@ def build_ffmpeg_command(
             "1:v:0",
             "-map",
             "0:a:0",
-            *video_codec_args,
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            *audio_plan.codec_args,
-            *audio_plan.filter_args,
+            *_encode_args(audio_plan, is_prores),
             *(("-shortest",) if output_duration is None else ()),
-            *faststart_args,
+            *_faststart_args(is_prores),
             "-vf",
             f"fps=fps=1:start_time=0,{video_tail}",
-            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
-            *output_format_args,
+            *_duration_args(output_duration),
+            *_output_format_args(is_prores),
             str(output_path),
         ]
 
@@ -1210,22 +1257,13 @@ def build_ffmpeg_command(
             "[v]",
             "-map",
             "2:a:0",
-            *video_codec_args,
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            *audio_plan.codec_args,
-            *audio_plan.filter_args,
-            *(("-shortest",) if output_duration is None else ()),
-            *faststart_args,
-            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
-            *output_format_args,
-            str(output_path),
+            *_encode_args(audio_plan, is_prores),
+            *_finish_output_args(
+                output_duration,
+                is_prores,
+                output_path,
+                include_shortest=output_duration is None,
+            ),
         ]
 
     if bg_blur:
@@ -1253,30 +1291,20 @@ def build_ffmpeg_command(
             "[v]",
             "-map",
             "1:a:0",
-            *video_codec_args,
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            *audio_plan.codec_args,
-            *audio_plan.filter_args,
-            *(("-shortest",) if output_duration is None else ()),
-            *faststart_args,
-            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
-            *output_format_args,
-            str(output_path),
+            *_encode_args(audio_plan, is_prores),
+            *_finish_output_args(
+                output_duration,
+                is_prores,
+                output_path,
+                include_shortest=output_duration is None,
+            ),
         ]
 
     if is_prores:
         video_filter = (
             f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
-            f"format={video_format},"
-            "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+            f"{video_tail}"
         )
         return [
             ffmpeg,
@@ -1293,38 +1321,19 @@ def build_ffmpeg_command(
             "0:v:0",
             "-map",
             "1:a:0",
-            "-c:v",
-            "prores_ks",
-            "-profile:v",
-            "2",
-            "-pix_fmt",
-            "yuv422p10le",
-            "-vendor",
-            "apl0",
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            *audio_plan.codec_args,
-            *audio_plan.filter_args,
+            *_encode_args(audio_plan, is_prores),
             "-shortest",
             "-vf",
             video_filter,
-            *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
-            "-f",
-            "mov",
+            *_duration_args(output_duration),
+            *_output_format_args(is_prores),
             str(output_path),
         ]
 
     video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
-        f"format={video_format},"
-        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+        f"{video_tail}"
     )
 
     return [
@@ -1342,30 +1351,12 @@ def build_ffmpeg_command(
         "0:v:0",
         "-map",
         "1:a:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "slow",
-        "-crf",
-        "16",
-        "-pix_fmt",
-        "yuv420p",
-        "-color_range",
-        "tv",
-        "-colorspace",
-        "bt709",
-        "-color_trc",
-        "bt709",
-        "-color_primaries",
-        "bt709",
-        *audio_plan.codec_args,
-        *audio_plan.filter_args,
+        *_encode_args(audio_plan, is_prores),
         "-shortest",
-        "-movflags",
-        "+faststart",
+        *_faststart_args(is_prores),
         "-vf",
         video_filter,
-        *(("-t", format_seconds(output_duration)) if output_duration is not None else ()),
+        *_duration_args(output_duration),
         str(output_path),
     ]
 
