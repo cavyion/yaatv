@@ -25,6 +25,7 @@ from yaatv.cli import (
     OutputStats,
     YaatvError,
     _download_url,
+    _should_pause_after_run,
     background_color,
     build_ffmpeg_command,
     choose_audio_plan,
@@ -40,6 +41,7 @@ from yaatv.cli import (
     install_macos_ffmpeg,
     install_windows_ffmpeg,
     is_high_quality_aac,
+    main,
     normalize_output_path,
     pad_seconds,
     parse_args,
@@ -206,6 +208,47 @@ def test_parse_args_accepts_scry_without_files() -> None:
     assert args.scry is True
     assert args.audio is None
     assert args.image is None
+
+
+def test_should_pause_after_run_for_noninteractive_positional_files() -> None:
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is True
+
+
+def test_should_pause_after_run_for_windows_explorer_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is True
+
+
+def test_should_not_pause_after_run_for_flag_invocation() -> None:
+    assert _should_pause_after_run(["-a", "track.flac", "-i", "cover.jpg"], StringIO()) is False
+
+
+def test_main_pauses_after_drag_drop_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    stderr = StringIO()
+
+    def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
+        assert argv == ["track.flac", "cover.jpg"]
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run", fake_run)
+
+    assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 0
+    assert "Press Enter to exit..." in stderr.getvalue()
+
+
+def test_main_pauses_after_drag_drop_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    stderr = StringIO()
+
+    def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
+        raise YaatvError("bad input")
+
+    monkeypatch.setattr("yaatv.cli.run", fake_run)
+
+    assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 1
+    output = stderr.getvalue()
+    assert "error: bad input" in output
+    assert "Press Enter to exit..." in output
 
 
 def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
