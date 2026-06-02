@@ -1,46 +1,17 @@
-#
-
-![yaatv](docs/docs-assets/yaatv.svg)
+# ![yaatv](docs/docs-assets/yaatv.svg)
 
 ![License](https://img.shields.io/github/license/cavyion/yaatv)
 ![Release](https://img.shields.io/github/v/release/cavyion/yaatv)
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 
-yaatv turns audio and cover art into a YouTube-ready video without opening a video editor.
-
-It is built for audio creators: producers, ASMRtists, podcasters, DJs, narrators, and anyone publishing audio with a static image.
-
-Works with common audio files like WAV, FLAC, MP3, M4A or AAC, OGG, and Opus, plus static cover images like JPG, PNG, and WebP. Animated images are not accepted.
+yaatv turns audio and cover art into an optimized video for YouTube and other
+upload sites.
 
 ```sh
 yaatv audio.flac cover.jpg
 ```
 
 Give it audio. Give it artwork. Get a video you can upload.
-
-On Windows, you can also drag one audio file and one cover image onto `yaatv.exe`. yaatv detects which file is audio and which file is the image, then writes the output with the default settings.
-
-## Drag and drop
-
-Drag-and-drop mode is for the quickest Windows run:
-
-1. Select one audio file and one cover image in Explorer.
-2. Drop both files onto `yaatv.exe`.
-3. yaatv creates a default 1080p MP4 in the current working directory.
-
-The same mode works from a terminal with plain file arguments:
-
-```sh
-yaatv audio.flac cover.jpg
-```
-
-Use PowerShell or a terminal with flags when you want to choose the output path, aspect ratio, resolution, background, padding, or verbose output.
-
-## Recommendations
-
-- Use a cover image at least as large as your output size. For the default 16:9 output, that means 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k.
-- Square album art works well. Use `--aspect square` for a square upload, or `--aspect 9:16` for a vertical upload.
-- Use WAV, FLAC, or high-bitrate AAC for the best audio quality.
 
 Website and docs: <https://yaatv.org>
 
@@ -52,151 +23,152 @@ Download the ZIP for your computer from the latest release:
 
 Use one of these release assets:
 
-- Windows x64: `yaatv-windows-x64.zip` containing `yaatv.exe` and runtime files
-- Linux x64: `yaatv-linux-x64.zip` containing `yaatv-linux` and runtime files
-- macOS x64: `yaatv-macos-x64.zip` containing `yaatv-macos` and runtime files
-- macOS arm64: `yaatv-macos-arm64.zip` containing `yaatv-macos-arm64` and runtime files
+- Windows x64: `yaatv-windows-x64.zip`
+- Linux x64: `yaatv-linux-x64.zip`
+- macOS x64: `yaatv-macos-x64.zip`
+- macOS arm64: `yaatv-macos-arm64.zip`
 
-You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files unless you specifically want the code.
+You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files
+unless you specifically want the code.
 
-Release ZIPs include the yaatv executable without FFmpeg. Run `--install-ffmpeg` once to install FFmpeg and FFprobe into yaatv's app-managed bin directory; yaatv checks that location before PATH and does not modify system PATH. Normal encoding stays local after those tools are installed.
+## Drag and drop
 
-## Run
+On Windows, drag one audio file and one cover image onto `yaatv.exe` for a
+default video.
 
-yaatv is a command-line app. For full control, open PowerShell or a terminal in the extracted folder and run it with your audio and image paths.
+Use PowerShell when you want to choose the output file, canvas, background, or
+padding.
 
-On Windows, run the executable from PowerShell:
+## Quick start
+
+Open PowerShell or a terminal in the extracted folder, install the local media
+tools once, check setup, then create a video.
+
+Windows:
 
 ```powershell
-.\yaatv.exe --version
 .\yaatv.exe --install-ffmpeg
 .\yaatv.exe --scry
 .\yaatv.exe audio.flac cover.jpg
-.\yaatv.exe -a audio.flac -i cover.jpg -o output.mp4
 ```
 
-For the quickest Windows run, drag one audio file and one cover image onto `yaatv.exe`. Drag-and-drop mode uses default settings. Use PowerShell when you want to choose the output path, aspect ratio, resolution, background, padding, or verbose output.
-
-If FFmpeg is missing during an interactive run, yaatv asks before installing it. In non-interactive runs, install FFmpeg first with `--install-ffmpeg`.
-
-On Linux:
+Linux:
 
 ```sh
 chmod +x ./yaatv-linux
-./yaatv-linux --version
 ./yaatv-linux --install-ffmpeg
-./yaatv-linux -a episode.wav -i cover.jpg -o output.mp4
+./yaatv-linux --scry
+./yaatv-linux audio.flac cover.jpg
 ```
 
-On macOS:
+macOS:
 
 ```sh
 chmod +x ./yaatv-macos
-./yaatv-macos --version
 ./yaatv-macos --install-ffmpeg
-./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
+./yaatv-macos --scry
+./yaatv-macos audio.flac cover.jpg
 ```
 
-Use `yaatv-macos-arm64` instead when you download the Apple Silicon ZIP. The macOS builds are unsigned. `--install-ffmpeg` supports both macOS x64 and Apple Silicon. If macOS blocks the file after download, allow it from System Settings, or remove the quarantine flag:
+Use `yaatv-macos-arm64` instead when you download the Apple Silicon ZIP.
+
+## Common uses
+
+Choose an output file:
 
 ```sh
-xattr -d com.apple.quarantine ./yaatv-macos
+yaatv -a episode.wav -i cover.jpg -o output.mp4
 ```
 
-## Usage
-
-The smallest command uses the audio file name, or artist and title tags when available, for the output file:
-
-```sh
-yaatv audio.flac cover.jpg
-yaatv -a audio.flac -i cover.jpg
-```
-
-Choose the output file, aspect ratio, and resolution:
-
-```sh
-yaatv -a episode.wav -i cover.jpg -o output.mp4 --resolution 1440p
-```
-
-Choose a square or vertical canvas:
+Create a square or vertical video:
 
 ```sh
 yaatv -a track.flac -i cover.jpg --aspect square
 yaatv -a short.wav -i cover.jpg --aspect 9:16
 ```
 
-Flags:
+Use a larger canvas:
 
-- Positional files: one audio file and one cover image, used for drag-and-drop mode when exactly two files are provided
-- `-a`, `--audio`: audio file, required unless using `--install-ffmpeg` or positional files
-- `-i`, `--image`: cover image, required unless using `--install-ffmpeg`, positional files, or color-only output
-- `-b`, `--bg-image`: background image to place behind the cover image
-- `--bg-color`: background color as `#RRGGBB` or a named CSS color, default is `black`
-- `--bg-blur`: use a blurred copy of the cover image as the background
-- `-o`, `--output`: output path, default is `[Artist] - [Title].mp4` when tags are available; `.mov` writes ProRes MOV
-- `--output-dir`: existing directory for the default output filename; do not use it with `-o` or `--output`
-- `--resolution`: `1080p`, `1440p`, or `4k`, default is `1080p`
-- `--aspect`: `16:9`, `square`, or `9:16`, default is `16:9`
-- `--pad`: seconds of silence to add at the end, default is `0`, max is `10`
-- `--no-warn`: hide low source quality warnings
-- `--dry-run`: print the FFmpeg command without creating an output file
-- `--verbose`: show FFmpeg progress output while encoding
-- `--overwrite`: overwrite an existing output file without prompting
-- `--install-ffmpeg`: install FFmpeg and FFprobe into yaatv's app-managed bin directory
-- `--scry`: check yaatv, FFmpeg, FFprobe, and output directory setup
+```sh
+yaatv -a mix.flac -i cover.jpg --resolution 1440p
+```
 
-## Troubleshooting setup
+Choose a background:
 
-Run `yaatv --scry` to check whether yaatv can find FFmpeg and FFprobe. The check also reports the yaatv version, Python version, app-managed bin directory, PATH tools, and whether the current directory is writable.
+```sh
+yaatv -a track.flac -i cover.jpg --bg-color "#202020"
+yaatv -a track.flac -i cover.jpg --bg-image background.jpg
+yaatv -a track.flac -i cover.jpg --bg-blur
+```
 
-## Source files
+Create a solid-color video without cover art:
 
-yaatv accepts common audio files and static cover images. Higher-quality source files give cleaner uploads, especially at 1440p and 4k.
+```sh
+yaatv -a track.flac --bg-color "#202020"
+```
 
-Audio:
+Create a large MOV master:
 
-- WAV, FLAC, MP3, M4A or AAC, OGG, and Opus are supported.
-- Use WAV, FLAC, or high-bitrate AAC when available.
-- 24-bit WAV is a good source format.
+```sh
+yaatv -a track.flac -i cover.jpg -o master.mov
+```
 
-Cover image:
+Add a short silence pad:
 
-- Use an image at least as large as your output size. For the default 16:9 output, that means 1920x1080 for 1080p, 2560x1440 for 1440p, or 3840x2160 for 4k. Square output uses 1080x1080, 1440x1440, or 2160x2160. Vertical output uses 1080x1920, 1440x2560, or 2160x3840.
-- Square album art gets black bars on the left and right with the default 16:9 aspect. Use `--aspect square` to make a square video, or `--aspect 9:16` to make a vertical video.
-- Use JPG, PNG, or static WebP. Animated images are rejected.
+```sh
+yaatv -a track.flac -i cover.jpg --pad 2
+```
 
-Visual background:
+## What to expect
 
-- By default, yaatv pads the cover image with black.
-- Use `--bg-color` to choose the pad color behind the cover image.
-- Use `--bg-image` to fill the frame with a second static image and center the cover image on top.
-- Use `--bg-blur` to fill the frame with a blurred copy of the cover image.
-- If `--bg-image` and `--bg-blur` are both set, `--bg-image` is used.
-- If `--bg-color` is set with `--bg-image` or `--bg-blur`, the image background or blurred background is used.
-- You can omit `-i` only when `--bg-color` is explicitly set to a non-black value. That creates a solid-color video.
+- yaatv keeps cover art from stretching.
+- Square album art works well for square videos.
+- WAV, FLAC, and high-bitrate AAC are good source choices.
+- JPG, PNG, and static WebP are good cover choices.
+- Animated images are rejected.
+- Existing output files require confirmation before replacement.
+- Warnings appear when source audio, image size, or file extensions may be
+  less than ideal.
 
-## Output
+## Options
 
-yaatv creates an MP4 by default. If the output path ends in `.mov`, yaatv creates a ProRes MOV instead.
+| Option | Purpose |
+| --- | --- |
+| Positional files | Use one audio file and one cover image. |
+| `-a`, `--audio` | Choose the audio file. |
+| `-i`, `--image` | Choose the cover image. |
+| `-b`, `--bg-image` | Choose a background image. |
+| `--bg-color` | Choose a background color. |
+| `--bg-blur` | Use a blurred copy of the cover image as the background. |
+| `-o`, `--output` | Choose the output file. A `.mov` path creates MOV output. |
+| `--output-dir` | Choose the folder for the default output filename. |
+| `--resolution` | Choose `1080p`, `1440p`, or `4k`. |
+| `--aspect` | Choose `16:9`, `square`, or `9:16`. |
+| `--pad` | Add 0 through 10 seconds of silence at the end. |
+| `--no-warn` | Hide source quality warnings. |
+| `--dry-run` | Print the command without creating a file. |
+| `--verbose` | Show encoding output. |
+| `--overwrite` | Replace an existing output file without asking first. |
+| `--install-ffmpeg` | Install local media tools for yaatv. |
+| `--scry` | Check yaatv, media tools, and output folder setup. |
 
-- MP4 output uses H.264 video at CRF 16, preset `slow`, yuv420p pixel format, and `+faststart`.
-- MOV output uses ProRes 422 profile 2, yuv422p10le pixel format, and a MOV container. MOV files are much larger than MP4 files.
-- Audio is encoded or copied into a format suitable for upload. High-quality AAC can be copied directly when no padding is needed.
-- Cover images keep their aspect ratio. yaatv adds a background instead of stretching.
-- `--aspect` chooses a 16:9, square, or 9:16 canvas.
-- Video is 1fps. The audio plays at normal speed; the image does not animate.
-- Video is encoded for broad playback compatibility and YouTube uploads.
-- Completed files are checked after encoding and summarized before yaatv exits.
-- The final summary shows the created file, verified media profile, and file details when they are available.
-- Existing output files require confirmation before overwrite. Use `--overwrite` only when a script should replace the output deliberately.
+## Troubleshooting
 
-Low-quality source audio, unusual file extensions, and cover images smaller than the target output size print warnings unless `--no-warn` is set.
+Run `yaatv --scry` when setup looks wrong.
 
-`--pad` cannot be used with high-quality AAC copy mode because adding silence requires a re-encode.
+If macOS blocks the downloaded executable, allow it from System Settings, or
+remove the quarantine flag:
 
-## Python install (optional)
+```sh
+xattr -d com.apple.quarantine ./yaatv-macos
+```
 
-If you prefer to run yaatv as a Python CLI, install it from this repository:
+If an output file already exists, choose a different output path, confirm
+replacement, or use `--overwrite` deliberately.
+
+## Python install
+
+Most people should use the release ZIPs. If you prefer a Python install:
 
 ```sh
 python -m pip install "git+https://github.com/cavyion/yaatv.git"
@@ -205,22 +177,21 @@ yaatv --version
 
 Python 3.10 or newer is required.
 
-Python installs do not bundle FFmpeg. On supported systems, `yaatv --install-ffmpeg` installs yaatv's app-managed copy. If you use your own FFmpeg install instead, make sure both commands work:
+Python installs still need the local media tools. Run:
 
 ```sh
-ffmpeg -version
-ffprobe -version
+yaatv --install-ffmpeg
+yaatv --scry
 ```
 
-Download FFmpeg from <https://ffmpeg.org/download.html> if you want to manage the tools yourself.
+## License
 
-## Third-party binaries
-
-The release ZIPs include `LICENSE`, `THIRD_PARTY_LICENSES.txt`, and `FFMPEG_BUILD_INFO.txt`. The yaatv source code is MIT licensed; third-party runtime and media components keep their own licenses. FFmpeg and FFprobe are downloaded only when `--install-ffmpeg` is used. See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for source and license details before redistributing release binaries.
+yaatv is MIT licensed. Release ZIPs include `LICENSE`,
+`THIRD_PARTY_LICENSES.txt`, and `FFMPEG_BUILD_INFO.txt`.
 
 ## Development
 
-Install the project with test/build tools:
+Install the project with test and build tools:
 
 ```sh
 python -m pip install -e ".[dev]"
@@ -242,11 +213,13 @@ python -m twine check dist/*
 
 ## Publishing
 
-Tagging a version that starts with `v` builds the Windows, Linux, macOS x64, and macOS arm64 assets, then attaches them to a GitHub release.
+Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
+and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
 git tag v0.5.5
 git push origin main --tags
 ```
 
-The website is served from `docs/` with GitHub Pages and uses `docs/CNAME` for `yaatv.org`.
+The website is served from `docs/` with GitHub Pages and uses `docs/CNAME` for
+`yaatv.org`.
