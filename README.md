@@ -34,7 +34,7 @@ unless you specifically want the code.
 ## Drag and drop
 
 On Windows, drag one audio file and one cover image onto `yaatv.exe` for a
-default video.
+default video next to the audio file.
 
 Use PowerShell when you want to choose the output file, canvas, background, or
 padding.
@@ -80,6 +80,18 @@ Choose an output file:
 yaatv -a episode.wav -i cover.jpg -o output.mp4
 ```
 
+Use embedded cover art:
+
+```sh
+yaatv -a track.flac
+```
+
+Open the output folder after a successful encode:
+
+```sh
+yaatv -a track.flac -i cover.jpg --open-folder
+```
+
 Create a square or vertical video:
 
 ```sh
@@ -122,10 +134,13 @@ yaatv -a track.flac -i cover.jpg --pad 2
 ## What to expect
 
 - yaatv keeps cover art from stretching.
+- Audio with embedded cover art can be used without `-i`.
 - Square album art works well for square videos.
 - WAV, FLAC, and high-bitrate AAC are good source choices.
 - JPG, PNG, and static WebP are good cover choices.
 - Animated images are rejected.
+- The planned output file appears before encoding starts.
+- yaatv shows simple progress while encoding and verifying.
 - Existing output files require confirmation before replacement.
 - Warnings appear when source audio, image size, or file extensions may be
   less than ideal.
@@ -147,8 +162,9 @@ yaatv -a track.flac -i cover.jpg --pad 2
 | `--pad` | Add 0 through 10 seconds of silence at the end. |
 | `--no-warn` | Hide source quality warnings. |
 | `--dry-run` | Print the command without creating a file. |
-| `--verbose` | Show encoding output. |
+| `--verbose` | Show raw encoding output. |
 | `--overwrite` | Replace an existing output file without asking first. |
+| `--open-folder` | Open the output folder after a successful encode. |
 | `--install-ffmpeg` | Install local media tools for yaatv. |
 | `--scry` | Check yaatv, media tools, and output folder setup. |
 
@@ -217,7 +233,7 @@ Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
 and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.5.5
+git tag v0.6.0
 git push origin main --tags
 ```
 

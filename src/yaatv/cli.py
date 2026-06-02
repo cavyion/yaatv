@@ -14,6 +14,7 @@ import tempfile
 import urllib.request
 import zipfile
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
@@ -281,12 +282,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Show FFmpeg progress output while encoding",
+        help="Show raw FFmpeg output while encoding",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite an existing output file without prompting",
+    )
+    parser.add_argument(
+        "--open-folder",
+        action="store_true",
+        help="Open the output folder after a successful encode",
     )
     parser.add_argument(
         "--install-ffmpeg",
@@ -502,7 +508,7 @@ def resolve_ffmpeg_tools(
             raise
 
         print(str(exc), file=stderr)
-        print("Install FFmpeg for yaatv now? [Y/n] ", end="", file=stderr, flush=True)
+        print("Install local media tools for yaatv now? [Y/n] ", end="", file=stderr, flush=True)
         answer = stdin.readline().strip().lower()
         if answer in {"n", "no"}:
             raise YaatvError("FFmpeg was not installed. Run yaatv --install-ffmpeg to install it.") from exc
@@ -557,6 +563,8 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
             print(f"info  ffprobe version: {version}", file=stderr)
     if selected_ffmpeg is None or selected_ffprobe is None:
         failure = True
+        if app_supported:
+            print("info  next step: run yaatv --install-ffmpeg", file=stderr)
     if not app_supported and selected_ffmpeg is None and selected_ffprobe is None:
         failure = True
 
@@ -902,6 +910,73 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
     )
 
 
+def extract_embedded_cover(audio_path: Path, directory: Path) -> Path | None:
+    try:
+        audio = MutagenFile(audio_path)
+    except (MutagenError, OSError) as exc:
+        raise YaatvError(f"Could not read embedded cover art: {audio_path}") from exc
+
+    if audio is None:
+        return None
+
+    for index, (image_data, mime_type) in enumerate(_embedded_cover_candidates(audio), start=1):
+        suffix = _embedded_cover_suffix(mime_type, image_data)
+        cover_path = directory / f"embedded-cover-{index}{suffix}"
+        cover_path.write_bytes(image_data)
+        try:
+            validate_image(cover_path, "Embedded cover art")
+        except YaatvError as exc:
+            raise YaatvError(f"Could not read embedded cover art: {audio_path}") from exc
+        return cover_path
+
+    return None
+
+
+def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | None]]:
+    for picture in getattr(audio, "pictures", ()) or ():
+        image_data = getattr(picture, "data", None)
+        if isinstance(image_data, bytes):
+            yield image_data, _string_or_none(getattr(picture, "mime", None))
+
+    tags = getattr(audio, "tags", None)
+    if not tags:
+        return
+
+    for value in _tag_values(tags, ("covr", "\xa9covr")):
+        if isinstance(value, (bytes, bytearray)):
+            yield bytes(value), None
+
+    values = tags.values() if hasattr(tags, "values") else ()
+    for value in values:
+        image_data = getattr(value, "data", None)
+        if isinstance(image_data, bytes):
+            yield image_data, _string_or_none(getattr(value, "mime", None))
+
+
+def _tag_values(tags: object, keys: Iterable[str]) -> Iterable[object]:
+    for key in keys:
+        value = _get_tag(tags, key)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            yield from value
+        else:
+            yield value
+
+
+def _embedded_cover_suffix(mime_type: str | None, image_data: bytes) -> str:
+    mime = (mime_type or "").lower()
+    if "png" in mime or image_data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if "webp" in mime or image_data.startswith(b"RIFF") and image_data[8:12] == b"WEBP":
+        return ".webp"
+    if "bmp" in mime or image_data.startswith(b"BM"):
+        return ".bmp"
+    if "tiff" in mime or image_data.startswith((b"II*\x00", b"MM\x00*")):
+        return ".tiff"
+    return ".jpg"
+
+
 def _audio_bitrate(path: Path, info: object) -> int | None:
     bitrate = _int_or_none(getattr(info, "bitrate", None))
     if bitrate:
@@ -1183,6 +1258,25 @@ def _finish_output_args(
     )
 
 
+def _filter_output_args(
+    video_filter: str,
+    output_duration: float | None,
+    is_prores: bool,
+    output_path: Path,
+    *,
+    include_shortest: bool,
+) -> tuple[str, ...]:
+    return (
+        *(("-shortest",) if include_shortest else ()),
+        *_faststart_args(is_prores),
+        "-vf",
+        video_filter,
+        *_duration_args(output_duration),
+        *_output_format_args(is_prores),
+        str(output_path),
+    )
+
+
 def build_ffmpeg_command(
     ffmpeg: str,
     audio_path: Path,
@@ -1218,13 +1312,13 @@ def build_ffmpeg_command(
             "-map",
             "0:a:0",
             *_encode_args(audio_plan, is_prores),
-            *(("-shortest",) if output_duration is None else ()),
-            *_faststart_args(is_prores),
-            "-vf",
-            f"fps=fps=1:start_time=0,{video_tail}",
-            *_duration_args(output_duration),
-            *_output_format_args(is_prores),
-            str(output_path),
+            *_filter_output_args(
+                f"fps=fps=1:start_time=0,{video_tail}",
+                output_duration,
+                is_prores,
+                output_path,
+                include_shortest=output_duration is None,
+            ),
         ]
 
     if bg_image_path is not None:
@@ -1322,12 +1416,13 @@ def build_ffmpeg_command(
             "-map",
             "1:a:0",
             *_encode_args(audio_plan, is_prores),
-            "-shortest",
-            "-vf",
-            video_filter,
-            *_duration_args(output_duration),
-            *_output_format_args(is_prores),
-            str(output_path),
+            *_filter_output_args(
+                video_filter,
+                output_duration,
+                is_prores,
+                output_path,
+                include_shortest=True,
+            ),
         ]
 
     video_filter = (
@@ -1352,12 +1447,13 @@ def build_ffmpeg_command(
         "-map",
         "1:a:0",
         *_encode_args(audio_plan, is_prores),
-        "-shortest",
-        *_faststart_args(is_prores),
-        "-vf",
-        video_filter,
-        *_duration_args(output_duration),
-        str(output_path),
+        *_filter_output_args(
+            video_filter,
+            output_duration,
+            is_prores,
+            output_path,
+            include_shortest=True,
+        ),
     ]
 
 
@@ -1536,6 +1632,23 @@ def print_output_summary(output_path: Path, stats: OutputStats, stderr: TextIO) 
         print(f"File: {file_details}", file=stderr)
 
 
+def open_output_folder(output_path: Path, stderr: TextIO) -> None:
+    folder = output_path.parent if output_path.parent != Path("") else Path(".")
+    try:
+        if os.name == "nt":
+            os.startfile(str(folder))  # type: ignore[attr-defined] # nosec B606
+        elif sys.platform == "darwin":
+            opener = shutil.which("open") or "/usr/bin/open"
+            subprocess.Popen([opener, str(folder)])  # noqa: S603
+        else:
+            opener = shutil.which("xdg-open")
+            if opener is None:
+                raise OSError("xdg-open was not found")
+            subprocess.Popen([opener, str(folder)])  # noqa: S603
+    except OSError as exc:
+        print(f"warning: could not open output folder: {exc}", file=stderr)
+
+
 def format_file_details(output_path: Path, duration: float | None) -> str | None:
     details: list[str] = []
     try:
@@ -1642,6 +1755,7 @@ def run(
         return run_scry(stderr=stderr)
 
     image_path: Path | None
+    color_only = False
     if args.files:
         if args.audio is not None or args.image is not None:
             raise YaatvError(
@@ -1654,12 +1768,6 @@ def run(
         if args.audio is None:
             raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
         color_only = args.image is None and args.bg_color_explicit and not is_default_background_color(args.bg_color)
-        if args.image is None and args.bg_blur:
-            raise YaatvError("--bg-blur requires a cover image. Use -i/--image to choose one.")
-        if args.image is None and args.bg_image is not None:
-            raise YaatvError("--bg-image requires a cover image. Use -i/--image to choose one.")
-        if args.image is None and not color_only:
-            raise YaatvError("Cover image is required. Use -i/--image to choose one.")
 
         audio_path = require_file(args.audio, "Audio file")
         image_path = require_file(args.image, "Cover image") if args.image is not None else None
@@ -1672,61 +1780,78 @@ def run(
         ffprobe = None
     else:
         ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
-    metadata = read_audio_metadata(audio_path)
-    image_size = validate_image(image_path) if image_path is not None else None
-    if bg_image_path is not None:
-        validate_image(bg_image_path, "Background image")
-    target_size = output_size(args.resolution, args.aspect)
-    output_path = resolve_output_path(audio_path, metadata, args.output, args.output_dir)
-    overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
-    audio_plan = choose_audio_plan(metadata, args.pad)
-    output_duration = metadata.duration + args.pad if metadata.duration is not None else None
+    with ExitStack() as stack:
+        metadata = read_audio_metadata(audio_path)
+        if image_path is None and not color_only:
+            cover_temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="yaatv-cover-")))
+            image_path = extract_embedded_cover(audio_path, cover_temp_dir)
+            if image_path is None:
+                raise YaatvError(
+                    "Cover image is required. Use -i/--image to choose one, or use audio with embedded cover art."
+                )
 
-    is_prores = output_path.suffix.lower() == ".mov"
+        image_size = validate_image(image_path) if image_path is not None else None
+        if bg_image_path is not None:
+            validate_image(bg_image_path, "Background image")
+        target_size = output_size(args.resolution, args.aspect)
+        implicit_output_dir = (
+            audio_path.parent if args.files and args.output is None and args.output_dir is None else args.output_dir
+        )
+        output_path = resolve_output_path(audio_path, metadata, args.output, implicit_output_dir)
+        print(f"Output: {output_path}", file=stderr)
+        overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
+        audio_plan = choose_audio_plan(metadata, args.pad)
+        output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
-    if not args.no_warn:
-        warnings = input_format_warnings(audio_path, image_path, bg_image_path)
-        if image_size is not None:
-            warnings.extend(quality_warnings(metadata, image_size, target_size))
-        for warning in [
-            *warnings,
-        ]:
-            print(f"warning: {warning}", file=stderr)
-    if is_prores:
-        print("note: .mov output uses ProRes 422; file sizes will be very large", file=stderr)
+        is_prores = output_path.suffix.lower() == ".mov"
 
-    command = build_ffmpeg_command(
-        ffmpeg=ffmpeg,
-        audio_path=audio_path,
-        image_path=image_path,
-        output_path=output_path,
-        target_size=target_size,
-        audio_plan=audio_plan,
-        overwrite=overwrite,
-        output_duration=output_duration,
-        is_prores=is_prores,
-        bg_image_path=bg_image_path,
-        bg_color=args.bg_color,
-        bg_blur=args.bg_blur,
-    )
-    if args.dry_run:
-        print(quote_command(command), file=stderr)
-        return 0
+        if not args.no_warn:
+            warnings = input_format_warnings(audio_path, image_path, bg_image_path)
+            if image_size is not None:
+                warnings.extend(quality_warnings(metadata, image_size, target_size))
+            for warning in [
+                *warnings,
+            ]:
+                print(f"warning: {warning}", file=stderr)
+        if is_prores:
+            print("note: .mov output uses ProRes 422; file sizes will be very large", file=stderr)
 
-    exit_code = run_ffmpeg(command, verbose=args.verbose)
-    if exit_code != 0:
-        if not args.verbose:
-            print(
-                f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
-                file=stderr,
-            )
-        return exit_code
+        command = build_ffmpeg_command(
+            ffmpeg=ffmpeg,
+            audio_path=audio_path,
+            image_path=image_path,
+            output_path=output_path,
+            target_size=target_size,
+            audio_plan=audio_plan,
+            overwrite=overwrite,
+            output_duration=output_duration,
+            is_prores=is_prores,
+            bg_image_path=bg_image_path,
+            bg_color=args.bg_color,
+            bg_blur=args.bg_blur,
+        )
+        if args.dry_run:
+            print(quote_command(command), file=stderr)
+            return 0
 
-    if ffprobe is None:
-        raise YaatvError("FFprobe was not resolved.")
-    stats = probe_output(ffprobe, output_path)
-    verify_output_stats(stats, target_size, is_prores=is_prores)
-    print_output_summary(output_path, stats, stderr=stderr)
+        print("Encoding...", file=stderr)
+        exit_code = run_ffmpeg(command, verbose=args.verbose)
+        if exit_code != 0:
+            if not args.verbose:
+                print(
+                    f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
+                    file=stderr,
+                )
+            return exit_code
+
+        if ffprobe is None:
+            raise YaatvError("FFprobe was not resolved.")
+        print("Verifying...", file=stderr)
+        stats = probe_output(ffprobe, output_path)
+        verify_output_stats(stats, target_size, is_prores=is_prores)
+        print_output_summary(output_path, stats, stderr=stderr)
+        if args.open_folder:
+            open_output_folder(output_path, stderr)
     return 0
 
 

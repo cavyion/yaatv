@@ -21,7 +21,9 @@ from yaatv.cli import (
     MACOS_FFMPEG_ARCHIVE_URL,
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
+    OUTPUT_SIZES,
     AudioMetadata,
+    AudioPlan,
     OutputStats,
     YaatvError,
     _download_url,
@@ -32,6 +34,7 @@ from yaatv.cli import (
     classify_files,
     confirm_overwrite,
     default_output_path,
+    extract_embedded_cover,
     find_external_tool,
     format_duration,
     format_file_details,
@@ -77,6 +80,53 @@ def _ffmpeg_zip_bytes() -> bytes:
         archive.writestr("ffmpeg-build/bin/ffplay.exe", b"ffplay")
         archive.writestr("ffmpeg-build/doc/readme.txt", b"extra")
     return buffer.getvalue()
+
+
+def _image_bytes(format_name: str = "JPEG") -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (16, 16), color=(32, 64, 96)).save(buffer, format=format_name)
+    return buffer.getvalue()
+
+
+def _transcode_plan(pad: float = 0) -> AudioPlan:
+    return choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=pad,
+    )
+
+
+def _video_tail(pixel_format: str) -> str:
+    return (
+        f"format={pixel_format},"
+        "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+    )
+
+
+def _pad_filter(width: int, height: int, *, color: str = "black", pixel_format: str = "yuv420p") -> str:
+    return (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{color},"
+        f"{_video_tail(pixel_format)}"
+    )
+
+
+def _background_image_filter(width: int, height: int, *, pixel_format: str = "yuv420p") -> str:
+    return (
+        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+        f"crop={width}:{height}[bg];"
+        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_video_tail(pixel_format)}[v]"
+    )
+
+
+def _background_blur_filter(width: int, height: int, *, pixel_format: str = "yuv420p") -> str:
+    return (
+        "[0:v]split[s1][s2];"
+        f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+        f"crop={width}:{height},boxblur=20:5[bg];"
+        f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_video_tail(pixel_format)}[v]"
+    )
 
 
 def _ffmpeg_tar_bytes() -> bytes:
@@ -171,21 +221,46 @@ def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
     assert MACOS_FFPROBE_ARCHIVE_SHA256 == "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
 
 
-def test_audio_and_image_are_required_for_encoding() -> None:
+def test_audio_and_image_are_required_for_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     with pytest.raises(YaatvError, match="Audio file is required"):
         run([], stdin=StringIO(), stderr=StringIO())
 
-    with pytest.raises(YaatvError, match="Cover image is required"):
-        run(["--audio", "track.wav"], stdin=StringIO(), stderr=StringIO())
+    audio_path = tmp_path / "track.wav"
+    background_path = tmp_path / "background.jpg"
+    audio_path.write_bytes(b"audio")
+    background_path.write_bytes(b"background")
+
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="wav",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.extract_embedded_cover", lambda _audio_path, _directory: None)
 
     with pytest.raises(YaatvError, match="Cover image is required"):
-        run(["--audio", "track.wav", "--bg-color", "black"], stdin=StringIO(), stderr=StringIO())
+        run(["--audio", str(audio_path), "--dry-run"], stdin=StringIO(), stderr=StringIO())
 
-    with pytest.raises(YaatvError, match="--bg-blur requires a cover image"):
-        run(["--audio", "track.wav", "--bg-blur"], stdin=StringIO(), stderr=StringIO())
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(["--audio", str(audio_path), "--bg-color", "black", "--dry-run"], stdin=StringIO(), stderr=StringIO())
 
-    with pytest.raises(YaatvError, match="--bg-image requires a cover image"):
-        run(["--audio", "track.wav", "--bg-image", "background.jpg"], stdin=StringIO(), stderr=StringIO())
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(["--audio", str(audio_path), "--bg-blur", "--dry-run"], stdin=StringIO(), stderr=StringIO())
+
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(
+            ["--audio", str(audio_path), "--bg-image", str(background_path), "--dry-run"],
+            stdin=StringIO(),
+            stderr=StringIO(),
+        )
 
 
 def test_run_scry_does_not_require_audio_or_image(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,6 +291,12 @@ def test_parse_args_accepts_scry_without_files() -> None:
     assert args.scry is True
     assert args.audio is None
     assert args.image is None
+
+
+def test_parse_args_accepts_open_folder() -> None:
+    args = parse_args(["-a", "audio.flac", "-i", "cover.jpg", "--open-folder"])
+
+    assert args.open_folder is True
 
 
 def test_should_pause_after_run_for_noninteractive_positional_files() -> None:
@@ -322,6 +403,162 @@ def test_background_color_validates_values() -> None:
 
     with pytest.raises(Exception, match="#RRGGBB"):
         background_color("#fff")
+
+
+@pytest.mark.parametrize(
+    ("aspect", "resolution", "expected_size"),
+    [
+        (aspect, resolution, size)
+        for aspect, sizes in OUTPUT_SIZES.items()
+        for resolution, size in sizes.items()
+    ],
+)
+def test_media_contract_defines_every_supported_output_size(
+    aspect: str,
+    resolution: str,
+    expected_size: tuple[int, int],
+) -> None:
+    width, height = expected_size
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=output_size(resolution, aspect),
+        audio_plan=_transcode_plan(),
+        overwrite=False,
+    )
+
+    assert output_size(resolution, aspect) == expected_size
+    assert command[command.index("-vf") + 1] == _pad_filter(width, height)
+
+
+@pytest.mark.parametrize(
+    ("name", "kwargs", "expected_prefix", "video_option", "expected_video", "expected_maps"),
+    [
+        (
+            "default mp4",
+            {},
+            ["ffmpeg", "-n", "-loop", "1", "-framerate", "1", "-i", "cover.jpg"],
+            "-vf",
+            _pad_filter(1920, 1080),
+            ("0:v:0", "1:a:0"),
+        ),
+        (
+            "prores mov",
+            {"output_path": Path("out.mov"), "is_prores": True},
+            ["ffmpeg", "-n", "-loop", "1", "-framerate", "1", "-i", "cover.jpg"],
+            "-vf",
+            _pad_filter(1920, 1080, pixel_format="yuv422p10le"),
+            ("0:v:0", "1:a:0"),
+        ),
+        (
+            "background image",
+            {"bg_image_path": Path("background.jpg"), "bg_blur": True, "bg_color": "0xffffff"},
+            [
+                "ffmpeg",
+                "-n",
+                "-loop",
+                "1",
+                "-framerate",
+                "1",
+                "-i",
+                "background.jpg",
+                "-loop",
+                "1",
+                "-framerate",
+                "1",
+                "-i",
+                "cover.jpg",
+            ],
+            "-filter_complex",
+            _background_image_filter(1920, 1080),
+            ("[v]", "2:a:0"),
+        ),
+        (
+            "blurred background",
+            {"bg_blur": True, "bg_color": "0xffffff"},
+            ["ffmpeg", "-n", "-loop", "1", "-framerate", "1", "-i", "cover.jpg"],
+            "-filter_complex",
+            _background_blur_filter(1920, 1080),
+            ("[v]", "1:a:0"),
+        ),
+        (
+            "color only",
+            {"image_path": None, "bg_color": "0xffffff", "output_duration": 30},
+            ["ffmpeg", "-n", "-i", "track.flac", "-f", "lavfi", "-i", "color=c=0xffffff:s=1920x1080:d=30"],
+            "-vf",
+            f"fps=fps=1:start_time=0,{_video_tail('yuv420p')}",
+            ("1:v:0", "0:a:0"),
+        ),
+    ],
+)
+def test_media_contract_command_profiles_preserve_branch_invariants(
+    name: str,
+    kwargs: dict[str, object],
+    expected_prefix: list[str],
+    video_option: str,
+    expected_video: str,
+    expected_maps: tuple[str, str],
+) -> None:
+    options = {
+        "ffmpeg": "ffmpeg",
+        "audio_path": Path("track.flac"),
+        "image_path": Path("cover.jpg"),
+        "output_path": Path("out.mp4"),
+        "target_size": (1920, 1080),
+        "audio_plan": _transcode_plan(),
+        "overwrite": False,
+    }
+    options.update(kwargs)
+
+    command = build_ffmpeg_command(**options)  # type: ignore[arg-type]
+
+    assert command[: len(expected_prefix)] == expected_prefix, name
+    assert command[command.index("-map") + 1] == expected_maps[0], name
+    assert command[command.index("-map", command.index("-map") + 1) + 1] == expected_maps[1], name
+    assert command[command.index(video_option) + 1] == expected_video, name
+
+    if kwargs.get("is_prores"):
+        assert "-movflags" not in command
+        assert command[command.index("-f") + 1] == "mov"
+        assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
+    else:
+        assert command[command.index("-pix_fmt") + 1] == "yuv420p"
+        if options["output_path"] == Path("out.mp4"):
+            assert command[command.index("-movflags") + 1] == "+faststart"
+
+
+@pytest.mark.parametrize(
+    ("output_duration", "expected_shortest", "expected_duration"),
+    [
+        (None, True, None),
+        (145, True, "145"),
+    ],
+)
+def test_media_contract_default_output_tail_order(
+    output_duration: float | None,
+    expected_shortest: bool,
+    expected_duration: str | None,
+) -> None:
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.mp3"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=_transcode_plan(),
+        overwrite=False,
+        output_duration=output_duration,
+    )
+
+    assert ("-shortest" in command) is expected_shortest
+    assert command.index("-shortest") < command.index("-movflags") < command.index("-vf")
+    if expected_duration is None:
+        assert "-t" not in command
+    else:
+        assert command[command.index("-t") + 1] == expected_duration
+        assert command.index("-vf") < command.index("-t") < len(command) - 1
 
 
 def test_transcode_command_uses_required_youtube_settings() -> None:
@@ -956,7 +1193,8 @@ def test_run_dry_run_does_not_require_ffmpeg_discovery(
         stdin=StringIO(),
         stderr=stderr,
     ) == 0
-    assert stderr.getvalue().startswith("ffmpeg -n ")
+    assert f"Output: {output_path}" in stderr.getvalue()
+    assert "ffmpeg -n " in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
 
@@ -999,7 +1237,7 @@ def test_run_quick_mode_dry_run_uses_classified_files(
     assert str(image_path) in command
     assert str(audio_path) in command
     assert "pad=2560:1440:(ow-iw)/2:(oh-ih)/2:black" in command
-    assert "Artist - Title.mp4" in command
+    assert str(tmp_path / "Artist - Title.mp4") in command
 
 
 def test_run_dry_run_uses_selected_aspect(
@@ -1043,7 +1281,46 @@ def test_run_dry_run_uses_selected_aspect(
     assert "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black" in command
 
 
-def test_run_quick_mode_encodes_with_custom_output(
+def test_run_dry_run_uses_embedded_cover_when_image_is_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    stderr = StringIO()
+
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+
+    def extract_cover(_audio_path: Path, directory: Path) -> Path:
+        cover_path = directory / "cover.jpg"
+        cover_path.write_bytes(_image_bytes())
+        return cover_path
+
+    monkeypatch.setattr("yaatv.cli.extract_embedded_cover", extract_cover)
+
+    assert run(
+        ["--audio", str(audio_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    command = stderr.getvalue()
+    assert "embedded-cover" not in command
+    assert "cover.jpg" in command
+    assert str(output_path) in command
+
+
+def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1092,15 +1369,19 @@ def test_run_quick_mode_encodes_with_custom_output(
         return 0
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.cli.open_output_folder", lambda path, _stderr: captured.setdefault("opened", path))
 
     assert run(
-        [str(audio_path), str(image_path), "-o", str(output_path)],
+        [str(audio_path), str(image_path), "-o", str(output_path), "--open-folder"],
         stdin=StringIO(),
         stderr=stderr,
     ) == 0
     assert captured["verbose"] is False
     assert str(output_path) in captured["command"]
+    assert captured["opened"] == output_path
     assert output_path.exists()
+    assert "Encoding..." in stderr.getvalue()
+    assert "Verifying..." in stderr.getvalue()
     assert f"Created {output_path}" in stderr.getvalue()
 
 
@@ -1219,6 +1500,74 @@ def test_install_ffmpeg_rejects_checksum_failure(
         )
 
     assert not (tmp_path / "yaatv" / "bin").exists()
+
+
+def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("ffmpeg-build/bin/ffplay.exe", b"ffplay")
+    archive_bytes = buffer.getvalue()
+
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+
+    with pytest.raises(YaatvError, match="did not contain bin/ffmpeg.exe"):
+        install_windows_ffmpeg(
+            install_dir=tmp_path / "yaatv" / "bin",
+            expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            stderr=StringIO(),
+        )
+
+
+def test_install_linux_ffmpeg_rejects_corrupt_tar(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = b"not a tar archive"
+
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+
+    with pytest.raises(YaatvError, match="not a valid tar file"):
+        install_linux_ffmpeg(
+            install_dir=tmp_path / "yaatv" / "bin",
+            expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            stderr=StringIO(),
+        )
+
+
+def test_install_macos_ffmpeg_rejects_zip_without_requested_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("not-ffmpeg", b"wrong")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"ffprobe")
+    archive_by_url = {
+        "https://example.invalid/ffmpeg.zip": ffmpeg_bytes,
+        "https://example.invalid/ffprobe.zip": ffprobe_bytes,
+    }
+
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+
+    with pytest.raises(YaatvError, match="ffmpeg archive did not contain ffmpeg"):
+        install_macos_ffmpeg(
+            install_dir=tmp_path / "yaatv" / "bin",
+            ffmpeg_archive_url="https://example.invalid/ffmpeg.zip",
+            ffmpeg_expected_sha256=hashlib.sha256(ffmpeg_bytes).hexdigest(),
+            ffprobe_archive_url="https://example.invalid/ffprobe.zip",
+            ffprobe_expected_sha256=hashlib.sha256(ffprobe_bytes).hexdigest(),
+            stderr=StringIO(),
+        )
 
 
 def test_download_url_uses_timeout(
@@ -1380,6 +1729,29 @@ def test_unreadable_audio_reports_user_facing_error(tmp_path: Path) -> None:
 
     with pytest.raises(YaatvError, match="Could not read audio metadata"):
         read_audio_metadata(audio_path)
+
+
+def test_extract_embedded_cover_uses_apic_tag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = object()
+
+        def __init__(self) -> None:
+            self.tags = {"APIC:": type("FakePicture", (), {"data": _image_bytes(), "mime": "image/jpeg"})()}
+
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"audio")
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    cover_path = extract_embedded_cover(audio_path, output_dir)
+
+    assert cover_path is not None
+    assert cover_path.parent == output_dir
+    assert validate_image(cover_path) == (16, 16)
 
 
 def test_animated_image_is_rejected(tmp_path: Path) -> None:
