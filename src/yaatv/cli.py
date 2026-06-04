@@ -728,6 +728,7 @@ def _download_and_verify_archive(
         raise YaatvError(f"Could not download {label}: {exc}") from exc
 
     _verify_sha256(archive_path, expected_sha256)
+    print(f"Downloaded {label}: {format_file_size(archive_path.stat().st_size)}", file=stderr)
 
 
 def _finish_ffmpeg_install(
@@ -751,20 +752,54 @@ def _install_staged_tools(
     executable: bool,
 ) -> None:
     install_dir.mkdir(parents=True, exist_ok=True)
-    for tool_name in tool_names:
-        target = install_dir / tool_name
-        if target.exists():
-            target.unlink()
-        shutil.move(str(staging_dir / tool_name), str(target))
-        if executable:
-            target.chmod(0o755)
+    staged_paths = [(tool_name, staging_dir / tool_name) for tool_name in tool_names]
+    for tool_name, source in staged_paths:
+        if not source.is_file():
+            raise YaatvError(f"FFmpeg install staging did not contain {tool_name}.")
+
+    temp_targets: list[Path] = []
+    for tool_name, source in staged_paths:
+        temp_target = install_dir / f".{tool_name}.tmp"
+        try:
+            if temp_target.exists():
+                temp_target.unlink()
+            shutil.move(str(source), str(temp_target))
+            if executable:
+                temp_target.chmod(0o755)
+            temp_targets.append(temp_target)
+        except OSError as exc:
+            for created_target in temp_targets:
+                created_target.unlink(missing_ok=True)
+            raise YaatvError(f"Could not stage {tool_name} for install: {exc}") from exc
+
+    try:
+        for temp_target in temp_targets:
+            tool_name = temp_target.name.removeprefix(".").removesuffix(".tmp")
+            os.replace(temp_target, install_dir / tool_name)
+    except OSError as exc:
+        for temp_target in temp_targets:
+            temp_target.unlink(missing_ok=True)
+        raise YaatvError(f"Could not install FFmpeg tools: {exc}") from exc
 
 
 def _download_url(url: str, destination: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": FFMPEG_DOWNLOAD_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
-        with destination.open("wb") as output:
-            shutil.copyfileobj(response, output)
+    last_error: OSError | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
+                with destination.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            return
+        except OSError as exc:
+            destination.unlink(missing_ok=True)
+            last_error = exc
+            if attempt == 1:
+                break
+
+    if last_error is None:
+        raise OSError("download failed")
+    raise OSError(f"{last_error} after 2 attempts") from last_error
 
 
 def _verify_sha256(path: Path, expected_sha256: str) -> None:

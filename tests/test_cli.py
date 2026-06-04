@@ -27,6 +27,7 @@ from yaatv.cli import (
     OutputStats,
     YaatvError,
     _download_url,
+    _install_staged_tools,
     _should_pause_after_run,
     background_color,
     build_ffmpeg_command,
@@ -1593,6 +1594,72 @@ def test_download_url_uses_timeout(
         "timeout": 60,
     }
     assert destination.read_bytes() == b"archive"
+
+
+def test_download_url_retries_once_after_network_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def urlopen(_request: Request, *, timeout: int) -> BytesIO:
+        nonlocal attempts
+        assert timeout == 60
+        attempts += 1
+        if attempts == 1:
+            raise OSError("temporary failure")
+        return BytesIO(b"archive")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    destination = tmp_path / "ffmpeg.zip"
+
+    _download_url("https://example.invalid/ffmpeg.zip", destination)
+
+    assert attempts == 2
+    assert destination.read_bytes() == b"archive"
+
+
+def test_download_url_reports_failure_after_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    def urlopen(_request: Request, *, timeout: int) -> BytesIO:
+        nonlocal attempts
+        assert timeout == 60
+        attempts += 1
+        raise OSError("offline")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+    with pytest.raises(OSError, match="after 2 attempts"):
+        _download_url("https://example.invalid/ffmpeg.zip", tmp_path / "ffmpeg.zip")
+
+    assert attempts == 2
+
+
+def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (install_dir / "ffmpeg").write_bytes(b"old ffmpeg")
+
+    def replace(_source: Path, _target: Path) -> None:
+        raise OSError("locked")
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg",), executable=True)
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"old ffmpeg"
+    assert not (install_dir / ".ffmpeg.tmp").exists()
 
 
 def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(

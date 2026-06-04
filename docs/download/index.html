@@ -144,6 +144,7 @@
         <pre class="command"><code>chmod +x ./yaatv-linux
 ./yaatv-linux --version
 ./yaatv-linux --install-ffmpeg
+./yaatv-linux --scry
 ./yaatv-linux -a episode.wav -i cover.jpg -o output.mp4</code></pre>
       </section>
 
@@ -158,10 +159,11 @@
         </div>
 
         <pre class="command"><code>chmod +x ./yaatv-macos
+xattr -d com.apple.quarantine ./yaatv-macos
 ./yaatv-macos --version
 ./yaatv-macos --install-ffmpeg
-./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4
-xattr -d com.apple.quarantine ./yaatv-macos</code></pre>
+./yaatv-macos --scry
+./yaatv-macos -a session.mp3 -i cover.jpg -o output.mp4</code></pre>
       </section>
 
       <section class="section" aria-labelledby="ffmpeg-title">

@@ -23,10 +23,14 @@ Download the ZIP for your computer from the latest release:
 
 Use one of these release assets:
 
-- Windows x64: `yaatv-windows-x64.zip`
-- Linux x64: `yaatv-linux-x64.zip`
-- macOS x64: `yaatv-macos-x64.zip`
-- macOS arm64: `yaatv-macos-arm64.zip`
+- Windows x64:
+  [`yaatv-windows-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-windows-x64.zip)
+- Linux x64:
+  [`yaatv-linux-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-linux-x64.zip)
+- macOS x64:
+  [`yaatv-macos-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-macos-x64.zip)
+- macOS arm64:
+  [`yaatv-macos-arm64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-macos-arm64.zip)
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files
 unless you specifically want the code.
@@ -233,7 +237,7 @@ Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
 and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.6.0
+git tag v0.6.1
 git push origin main --tags
 ```
 
