@@ -1802,7 +1802,13 @@ def run(
     else:
         if args.audio is None:
             raise YaatvError("Audio file is required. Use -a/--audio to choose one.")
-        color_only = args.image is None and args.bg_color_explicit and not is_default_background_color(args.bg_color)
+        color_only = (
+            args.image is None
+            and args.bg_image is None
+            and not args.bg_blur
+            and args.bg_color_explicit
+            and not is_default_background_color(args.bg_color)
+        )
 
         audio_path = require_file(args.audio, "Audio file")
         image_path = require_file(args.image, "Cover image") if args.image is not None else None

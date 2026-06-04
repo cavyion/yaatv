@@ -258,7 +258,21 @@ def test_audio_and_image_are_required_for_encoding(
 
     with pytest.raises(YaatvError, match="Cover image is required"):
         run(
+            ["--audio", str(audio_path), "--bg-blur", "--bg-color", "white", "--dry-run"],
+            stdin=StringIO(),
+            stderr=StringIO(),
+        )
+
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(
             ["--audio", str(audio_path), "--bg-image", str(background_path), "--dry-run"],
+            stdin=StringIO(),
+            stderr=StringIO(),
+        )
+
+    with pytest.raises(YaatvError, match="Cover image is required"):
+        run(
+            ["--audio", str(audio_path), "--bg-image", str(background_path), "--bg-color", "white", "--dry-run"],
             stdin=StringIO(),
             stderr=StringIO(),
         )
