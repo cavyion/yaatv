@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a reproducible yaatv CLI problem or conversion error
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please make sure you have tested against the latest release or current `main`.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen instead.
+      placeholder: When running yaatv with a FLAC file and JPG cover, the process exited with...
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Exact command executed
+      description: The full yaatv command you ran.
+      placeholder: yaatv -a audio.flac -i cover.jpg -o output.mp4
+    validations:
+      required: true
+
+  - type: textarea
+    id: terminal-output
+    attributes:
+      label: Terminal output
+      description: Paste the complete terminal output as text, not a screenshot.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you running?
+      options:
+        - Windows (x64)
+        - Linux (x64)
+        - macOS (Apple Silicon / arm64)
+        - macOS (Intel / x64)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: yaatv version
+      description: Output of `yaatv --version`
+      placeholder: 0.6.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      description: How did you install yaatv?
+      options:
+        - Release ZIP binary
+        - Python package (pip)
+        - Git source checkout
+    validations:
+      required: true
+
+  - type: input
+    id: ffmpeg-version
+    attributes:
+      label: FFmpeg and FFprobe version
+      description: Output of `ffmpeg -version` and `ffprobe -version` (or `yaatv --scry`)
+      placeholder: ffmpeg version 7.x...
+
+  - type: textarea
+    id: input-media
+    attributes:
+      label: Input media details
+      description: Audio codec/container, image format and dimensions, canvas options used.
+      placeholder: FLAC 24-bit 96kHz, PNG 3000x3000px, default 1080p 16:9
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sample file or reproduction notes
+      description: Share a small non-copyrighted sample file or steps if possible. Do not attach copyrighted music or artwork.
+
