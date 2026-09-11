@@ -43,9 +43,11 @@ jobs:
         run: |
           set -euo pipefail
           package_version="$(python - <<'PY'
+          import sys
           import tomllib
           from pathlib import Path
 
+          sys.path.insert(0, "src")
           pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
           from yaatv import __version__
           if pyproject != __version__:
