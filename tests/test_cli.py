@@ -1376,6 +1376,89 @@ def test_run_dry_run_prints_command_without_encoding(
     assert not output_path.exists()
 
 
+def test_run_dry_run_does_not_require_overwrite_when_output_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    output_path.write_bytes(b"existing")
+    existing = output_path.read_bytes()
+    stderr = StringIO()
+
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("dry run must not encode")
+
+    def refuse_overwrite(*_args: object, **_kwargs: object) -> bool:
+        raise AssertionError("dry run must not confirm overwrite")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.cli.confirm_overwrite", refuse_overwrite)
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert "ffmpeg" in stderr.getvalue()
+    assert "Overwrite?" not in stderr.getvalue()
+    assert output_path.read_bytes() == existing
+
+
+def test_run_dry_run_existing_output_does_not_prompt_when_interactive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    output_path.write_bytes(b"existing")
+    stderr = StringIO()
+
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.cli.run_ffmpeg",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dry run must not encode")),
+    )
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=_TtyInput("n\n"),
+        stderr=stderr,
+    ) == 0
+    assert "Overwrite?" not in stderr.getvalue()
+    assert output_path.exists()
+
+
 def test_run_dry_run_does_not_require_ffmpeg_discovery(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

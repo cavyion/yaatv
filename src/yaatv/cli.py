@@ -1934,7 +1934,11 @@ def run(
         )
         output_path = resolve_output_path(audio_path, metadata, args.output, implicit_output_dir)
         print(f"Output: {output_path}", file=stderr)
-        overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
+        if args.dry_run:
+            # Dry-run never writes the destination, so do not prompt or require --overwrite.
+            overwrite = args.overwrite
+        else:
+            overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
         audio_plan = choose_audio_plan(metadata, args.pad)
         output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
