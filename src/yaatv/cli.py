@@ -320,6 +320,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv_list)
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
+    if args.install_ffmpeg and args.scry:
+        parser.error("--install-ffmpeg and --scry are mutually exclusive; use one or the other.")
     if args.bg_image is not None and args.bg_blur:
         parser.error("--bg-image and --bg-blur are mutually exclusive; use one or the other.")
     if args.bg_color_explicit and (args.bg_image is not None or args.bg_blur):

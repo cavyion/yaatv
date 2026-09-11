@@ -318,6 +318,31 @@ def test_parse_args_accepts_scry_without_files() -> None:
     assert args.image is None
 
 
+def test_parse_args_accepts_install_ffmpeg_without_files() -> None:
+    args = parse_args(["--install-ffmpeg"])
+
+    assert args.install_ffmpeg is True
+    assert args.scry is False
+    assert args.audio is None
+    assert args.image is None
+
+
+def test_parse_args_rejects_install_ffmpeg_with_scry(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--install-ffmpeg", "--scry"])
+
+    err = capsys.readouterr().err
+    assert "--install-ffmpeg and --scry are mutually exclusive; use one or the other." in err
+
+
+def test_parse_args_rejects_scry_with_install_ffmpeg(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--scry", "--install-ffmpeg"])
+
+    err = capsys.readouterr().err
+    assert "--install-ffmpeg and --scry are mutually exclusive; use one or the other." in err
+
+
 def test_parse_args_accepts_open_folder() -> None:
     args = parse_args(["-a", "audio.flac", "-i", "cover.jpg", "--open-folder"])
 
