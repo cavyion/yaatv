@@ -71,6 +71,7 @@ KNOWN_IMAGE_EXTENSIONS = {
     ".tiff",
     ".webp",
 }
+SUPPORTED_OUTPUT_EXTENSIONS = {".mov", ".mp4"}
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_FILENAMES = {
     "CON",
@@ -251,7 +252,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "-o",
         "--output",
         type=Path,
-        help="Output path (default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
+        help="Output path (.mp4 or .mov; default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
     )
     parser.add_argument(
         "--output-dir",
@@ -1596,6 +1597,10 @@ def normalize_output_path(path: Path) -> Path:
     output_path = path.expanduser()
     if output_path.exists() and output_path.is_dir():
         raise YaatvError(f"Output path is a directory: {output_path}")
+    if output_path.suffix.lower() not in SUPPORTED_OUTPUT_EXTENSIONS:
+        suffix = output_path.suffix or "(none)"
+        supported = ", ".join(sorted(SUPPORTED_OUTPUT_EXTENSIONS))
+        raise YaatvError(f"Unsupported output extension {suffix!r}; supported extensions: {supported}")
     if output_path.parent != Path(".") and not output_path.parent.exists():
         raise YaatvError(f"Output directory does not exist: {output_path.parent}")
     return output_path

@@ -159,7 +159,7 @@ yaatv -a track.flac -i cover.jpg --pad 2
 | `-b`, `--bg-image` | Choose a background image. |
 | `--bg-color` | Choose a background color. |
 | `--bg-blur` | Use a blurred copy of the cover image as the background. |
-| `-o`, `--output` | Choose the output file. A `.mov` path creates MOV output. |
+| `-o`, `--output` | Choose an `.mp4` or `.mov` output file. A `.mov` path creates ProRes MOV output. |
 | `--output-dir` | Choose the folder for the default output filename. |
 | `--resolution` | Choose `1080p`, `1440p`, or `4k`. |
 | `--aspect` | Choose `16:9`, `square`, or `9:16`. |

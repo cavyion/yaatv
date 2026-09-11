@@ -2410,6 +2410,17 @@ def test_normalize_output_path_rejects_missing_directory(tmp_path: Path) -> None
         normalize_output_path(tmp_path / "missing" / "out.mp4")
 
 
+@pytest.mark.parametrize("filename", ["out.avi", "out.mkv", "out"])
+def test_normalize_output_path_rejects_unsupported_extension(filename: str) -> None:
+    with pytest.raises(YaatvError, match=r"supported extensions: \.mov, \.mp4"):
+        normalize_output_path(Path(filename))
+
+
+@pytest.mark.parametrize("filename", ["out.mp4", "out.MP4", "out.mov", "out.MOV"])
+def test_normalize_output_path_accepts_supported_extension(filename: str) -> None:
+    assert normalize_output_path(Path(filename)) == Path(filename)
+
+
 def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
