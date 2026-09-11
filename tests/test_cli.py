@@ -2013,6 +2013,116 @@ def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
     assert not (install_dir / ".ffmpeg.tmp").exists()
 
 
+def test_install_staged_tools_rolls_back_full_pair_when_second_replace_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffmpeg").write_bytes(b"old ffmpeg")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    real_replace = os.replace
+    call_count = 0
+
+    def replace(source: Path, target: Path) -> None:
+        nonlocal call_count
+        call_count += 1
+        # Let the snapshot phase (calls 1-2) and first commit (call 3) succeed.
+        # Fail on the second commit (call 4) so the rollback (calls 5-6) can run.
+        if call_count == 4:
+            raise OSError("locked")
+        real_replace(source, target)
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"old ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"old ffprobe"
+    assert not (install_dir / ".ffmpeg.tmp").exists()
+    assert not (install_dir / ".ffprobe.tmp").exists()
+    assert not (install_dir / ".ffmpeg.bak").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
+def test_install_staged_tools_rolls_back_pair_when_only_one_tool_existed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    real_replace = os.replace
+
+    def replace(source: Path, target: Path) -> None:
+        if Path(target).name == "ffmpeg":
+            raise OSError("locked")
+        real_replace(source, target)
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert not (install_dir / "ffmpeg").exists()
+    assert (install_dir / "ffprobe").read_bytes() == b"old ffprobe"
+    assert not (install_dir / ".ffmpeg.tmp").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
+def test_install_staged_tools_first_install_rolls_back_to_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+
+    def replace(_source: Path, _target: Path) -> None:
+        raise OSError("locked")
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert list(install_dir.iterdir()) == []
+
+
+def test_install_staged_tools_removes_backups_after_successful_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffmpeg").write_bytes(b"old ffmpeg")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"new ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"new ffprobe"
+    assert not (install_dir / ".ffmpeg.bak").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
 def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -812,14 +812,54 @@ def _install_staged_tools(
                 created_target.unlink(missing_ok=True)
             raise YaatvError(f"Could not stage {tool_name} for install: {exc}") from exc
 
+    # Snapshot phase: move any existing installed tools aside so the whole pair
+    # can be restored if a later replacement fails. This makes the install
+    # transactional rather than atomic: either the full new pair is committed,
+    # or the directory is rolled back to its previous state.
+    backups: dict[Path, Path] = {}
     try:
         for temp_target in temp_targets:
             tool_name = temp_target.name.removeprefix(".").removesuffix(".tmp")
-            os.replace(temp_target, install_dir / tool_name)
+            final_target = install_dir / tool_name
+            if final_target.exists():
+                backup_target = install_dir / f".{tool_name}.bak"
+                if backup_target.exists():
+                    backup_target.unlink()
+                os.replace(final_target, backup_target)
+                backups[backup_target] = final_target
     except OSError as exc:
-        for temp_target in temp_targets:
-            temp_target.unlink(missing_ok=True)
+        _rollback_install(temp_targets, backups, [])
         raise YaatvError(f"Could not install FFmpeg tools: {exc}") from exc
+
+    # Commit phase: replace each installed tool with the staged copy.
+    committed: list[Path] = []
+    try:
+        for temp_target in temp_targets:
+            tool_name = temp_target.name.removeprefix(".").removesuffix(".tmp")
+            final_target = install_dir / tool_name
+            os.replace(temp_target, final_target)
+            committed.append(final_target)
+    except OSError as exc:
+        _rollback_install(temp_targets, backups, committed)
+        raise YaatvError(f"Could not install FFmpeg tools: {exc}") from exc
+
+    for backup_target in backups:
+        backup_target.unlink(missing_ok=True)
+
+
+def _rollback_install(temp_targets: Sequence[Path], backups: Mapping[Path, Path], committed: Sequence[Path]) -> None:
+    """Best-effort restore of the installation directory to its previous state."""
+
+    for final_target in committed:
+        final_target.unlink(missing_ok=True)
+    for temp_target in temp_targets:
+        temp_target.unlink(missing_ok=True)
+    for backup_target, final_target in backups.items():
+        try:
+            os.replace(backup_target, final_target)
+        except OSError:
+            # The backup file is left in place so the previous tool is not lost.
+            pass
 
 
 def _download_url(url: str, destination: Path) -> None:
