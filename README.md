@@ -237,7 +237,7 @@ Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
 and macOS arm64 assets, then attaches them to a GitHub release.
 
 ```sh
-git tag v0.6.1
+git tag v0.6.2
 git push origin main --tags
 ```
 
