@@ -7,11 +7,77 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  gate:
+    name: Pre-release verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Verify release commit is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Error: Release commit ${GITHUB_SHA} is not reachable from origin/main." >&2
+            exit 1
+          fi
+          echo "Commit ${GITHUB_SHA} is verified on origin/main."
+
+      - name: Validate release tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          from yaatv import __version__
+          if pyproject != __version__:
+              raise SystemExit(f"pyproject.toml version {pyproject} does not match yaatv.__version__ {__version__}")
+          print(pyproject)
+          PY
+          )"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME matches package version $package_version."
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev]"
+
+      - name: Run security and quality gates
+        run: |
+          python -m ruff check .
+          python -m mypy
+          python -m bandit -c pyproject.toml -r src
+          python -m pip_audit . --strict
+
+      - name: Run tests
+        run: python -m pytest
+
   build:
     name: Build ${{ matrix.package_name }}
+    needs: gate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,10 +102,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
 
@@ -247,7 +315,7 @@ jobs:
           PY
 
       - name: Upload release package artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.package_name }}
           path: release-assets/${{ matrix.package_name }}.zip
@@ -256,18 +324,56 @@ jobs:
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [gate, build]
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Generate checksums manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd release-assets && sha256sum *.zip > SHA256SUMS)
+
+      - name: Sign checksums with PGP
+        env:
+          PGP_PRIVATE_KEY: ${{ secrets.PGP_PRIVATE_KEY }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${PGP_PRIVATE_KEY:-}" ]; then
+            echo "Importing PGP private key..."
+            echo "$PGP_PRIVATE_KEY" | gpg --batch --import
+            if [ -n "${PGP_PASSPHRASE:-}" ]; then
+              gpg --batch --yes --pinentry-mode loopback --passphrase "$PGP_PASSPHRASE" --armor --detach-sign release-assets/SHA256SUMS
+            else
+              gpg --batch --yes --armor --detach-sign release-assets/SHA256SUMS
+            fi
+            echo "Created SHA256SUMS.asc signature."
+          else
+            echo "No PGP_PRIVATE_KEY secret configured; skipping detached PGP signature."
+          fi
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*.zip
 
       - name: Create or update release
         env:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yaatv"
-version = "0.6.2"
+version = "0.6.3"
 description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-ready video."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,8 +70,4 @@ warn_unused_configs = true
 
 [tool.bandit]
 exclude_dirs = ["assets", "build", "dist", "tests"]
-skips = [
-  "B310",
-  "B404",
-  "B603"
-]
+skips = []

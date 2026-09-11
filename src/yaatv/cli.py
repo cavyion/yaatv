@@ -7,7 +7,7 @@ import os
 import platform
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import urllib.request
@@ -629,7 +629,12 @@ def check_tool_health(path: str | None) -> ToolHealth:
         return ToolHealth(path=None, state="missing")
 
     try:
-        completed = subprocess.run([path, "-version"], check=False, capture_output=True, text=True)
+        completed = subprocess.run(
+            [path, "-version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )  # nosec B603
     except FileNotFoundError:
         return ToolHealth(path=path, state="missing")
     except OSError as exc:
@@ -873,11 +878,15 @@ def _rollback_install(temp_targets: Sequence[Path], backups: Mapping[Path, Path]
 
 
 def _download_url(url: str, destination: Path) -> None:
+    if not url.startswith("https://"):
+        raise YaatvError(f"Unsupported download URL scheme: {url}")
     request = urllib.request.Request(url, headers={"User-Agent": FFMPEG_DOWNLOAD_USER_AGENT})
     last_error: OSError | None = None
     for attempt in range(2):
         try:
-            with urllib.request.urlopen(request, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS) as response:
+            with urllib.request.urlopen(  # nosec B310
+                request, timeout=FFMPEG_DOWNLOAD_TIMEOUT_SECONDS
+            ) as response:
                 with destination.open("wb") as output:
                     shutil.copyfileobj(response, output)
             return
@@ -1635,7 +1644,12 @@ def quote_command(command: Sequence[str]) -> str:
 
 def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> int:
     try:
-        completed = subprocess.run(command, check=False, stderr=None if verbose else subprocess.PIPE, text=True)
+        completed = subprocess.run(
+            command,
+            check=False,
+            stderr=None if verbose else subprocess.PIPE,
+            text=True,
+        )  # nosec B603
     except FileNotFoundError as exc:
         raise YaatvError(
             "FFmpeg was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
@@ -1658,7 +1672,12 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         str(output_path),
     ]
     try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )  # nosec B603
     except FileNotFoundError as exc:
         raise YaatvError(
             "FFprobe was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
@@ -1768,12 +1787,12 @@ def open_output_folder(output_path: Path, stderr: TextIO) -> None:
             os.startfile(str(folder))  # type: ignore[attr-defined] # nosec B606
         elif sys.platform == "darwin":
             opener = shutil.which("open") or "/usr/bin/open"
-            subprocess.Popen([opener, str(folder)])  # noqa: S603
+            subprocess.Popen([opener, str(folder)])  # nosec B603 # noqa: S603
         else:
             opener = shutil.which("xdg-open")
             if opener is None:
                 raise OSError("xdg-open was not found")
-            subprocess.Popen([opener, str(folder)])  # noqa: S603
+            subprocess.Popen([opener, str(folder)])  # nosec B603 # noqa: S603
     except OSError as exc:
         print(f"warning: could not open output folder: {exc}", file=stderr)
 

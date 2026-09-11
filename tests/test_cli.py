@@ -2155,6 +2155,13 @@ def test_download_url_reports_failure_after_retry(
     assert attempts == 2
 
 
+def test_download_url_rejects_non_https_scheme(tmp_path: Path) -> None:
+    with pytest.raises(YaatvError, match="Unsupported download URL scheme"):
+        _download_url("http://example.invalid/ffmpeg.zip", tmp_path / "ffmpeg.zip")
+    with pytest.raises(YaatvError, match="Unsupported download URL scheme"):
+        _download_url("file:///etc/passwd", tmp_path / "ffmpeg.zip")
+
+
 def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
