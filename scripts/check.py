@@ -48,6 +48,10 @@ def main() -> int:
 
     if not args.fast:
         steps.append(("Bandit security scan", [py, "-m", "bandit", "-c", "pyproject.toml", "-r", "src"]))
+        steps.append((
+            "Dependency licenses",
+            [py, "-m", "piplicenses", "--packages", "mutagen", "pillow", "--with-urls"],
+        ))
         if not args.skip_audit:
             steps.append(("Pip audit", [py, "-m", "pip_audit", ".", "--strict"]))
 

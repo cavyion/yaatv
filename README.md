@@ -225,6 +225,7 @@ python -m yaatv --version
 python -m ruff check .
 python -m mypy
 python -m bandit -c pyproject.toml -r src
+python -m piplicenses --packages mutagen pillow --with-urls
 python -m pip_audit . --strict
 python -m pytest
 python -m build
