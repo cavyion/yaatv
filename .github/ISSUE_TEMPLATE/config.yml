@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/yaatv/yaatv/security/advisories/new
+    about: Please report security issues privately via GitHub Security Advisories or as described in SECURITY.md.
+  - name: Questions and Discussions
+    url: https://github.com/yaatv/yaatv/discussions
+    about: Ask questions, get help with commands, or discuss ideas with the community.
+  - name: Frequently Asked Questions (FAQ)
+    url: https://yaatv.org/faq/
+    about: Check the yaatv FAQ for common questions about video encoding, canvas formats, and setup.
+

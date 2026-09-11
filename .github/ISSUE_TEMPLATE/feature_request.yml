@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a focused CLI capability, option, or improvement for yaatv
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing issues and discussions first to see if this feature has already been proposed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What are you trying to do that yaatv does not handle today?
+      placeholder: I need to process audio with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed behavior
+      description: Describe the CLI behavior, flag, or output change you want to see.
+      placeholder: Add an option --flag that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-workaround
+    attributes:
+      label: Current workaround
+      description: How do you handle this currently, if at all?
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Mention any relevant file formats, FFmpeg filters, or platforms this depends on.
+

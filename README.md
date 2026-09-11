@@ -1,7 +1,7 @@
 # ![yaatv](docs/docs-assets/yaatv.svg)
 
-![License](https://img.shields.io/github/license/cavyion/yaatv)
-![Release](https://img.shields.io/github/v/release/cavyion/yaatv)
+![License](https://img.shields.io/github/license/yaatv/yaatv)
+![Release](https://img.shields.io/github/v/release/yaatv/yaatv)
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 
 yaatv turns audio and cover art into an optimized video for YouTube and other
@@ -19,18 +19,18 @@ Website and docs: <https://yaatv.org>
 
 Download the ZIP for your computer from the latest release:
 
-<https://github.com/cavyion/yaatv/releases/latest>
+<https://github.com/yaatv/yaatv/releases/latest>
 
 Use one of these release assets:
 
 - Windows x64:
-  [`yaatv-windows-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-windows-x64.zip)
+  [`yaatv-windows-x64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-windows-x64.zip)
 - Linux x64:
-  [`yaatv-linux-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-linux-x64.zip)
+  [`yaatv-linux-x64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-linux-x64.zip)
 - macOS x64:
-  [`yaatv-macos-x64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-macos-x64.zip)
+  [`yaatv-macos-x64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-x64.zip)
 - macOS arm64:
-  [`yaatv-macos-arm64.zip`](https://github.com/cavyion/yaatv/releases/latest/download/yaatv-macos-arm64.zip)
+  [`yaatv-macos-arm64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-arm64.zip)
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files
 unless you specifically want the code.
@@ -191,7 +191,7 @@ replacement, or use `--overwrite` deliberately.
 Most people should use the release ZIPs. If you prefer a Python install:
 
 ```sh
-python -m pip install "git+https://github.com/cavyion/yaatv.git"
+python -m pip install "git+https://github.com/yaatv/yaatv.git"
 yaatv --version
 ```
 
@@ -225,11 +225,24 @@ python -m yaatv --version
 python -m ruff check .
 python -m mypy
 python -m bandit -c pyproject.toml -r src
+python -m piplicenses --packages mutagen pillow --with-urls
 python -m pip_audit . --strict
 python -m pytest
 python -m build
 python -m twine check dist/*
 ```
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+workflows, and guidelines.
+
+- Look through [good first issues](https://github.com/yaatv/yaatv/labels/good%20first%20issue)
+  to get started.
+- Report bugs or suggest features on the [issue tracker](https://github.com/yaatv/yaatv/issues).
+- See [CONTRIBUTORS.md](CONTRIBUTORS.md) for recognition of everyone who has helped
+  build and test yaatv.
+- Read our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before participating.
 
 ## Publishing
 
