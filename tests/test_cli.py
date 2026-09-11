@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 import sys
-import tarfile
 import zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -15,6 +14,10 @@ from PIL import Image
 from yaatv import __version__
 from yaatv.cli import (
     FFMPEG_DOWNLOAD_USER_AGENT,
+    LINUX_FFMPEG_ARCHIVE_SHA256,
+    LINUX_FFMPEG_ARCHIVE_URL,
+    LINUX_FFPROBE_ARCHIVE_SHA256,
+    LINUX_FFPROBE_ARCHIVE_URL,
     MACOS_ARM64_FFMPEG_ARCHIVE_URL,
     MACOS_ARM64_FFPROBE_ARCHIVE_URL,
     MACOS_FFMPEG_ARCHIVE_SHA256,
@@ -22,6 +25,8 @@ from yaatv.cli import (
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
     OUTPUT_SIZES,
+    WINDOWS_FFMPEG_ARCHIVE_SHA256,
+    WINDOWS_FFMPEG_ARCHIVE_URL,
     AudioMetadata,
     AudioPlan,
     OutputStats,
@@ -130,21 +135,6 @@ def _background_blur_filter(width: int, height: int, *, pixel_format: str = "yuv
     )
 
 
-def _ffmpeg_tar_bytes() -> bytes:
-    buffer = BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:xz") as archive:
-        for name, data in {
-            "ffmpeg-build/bin/ffmpeg": b"ffmpeg",
-            "ffmpeg-build/bin/ffprobe": b"ffprobe",
-            "ffmpeg-build/bin/ffplay": b"ffplay",
-            "ffmpeg-build/doc/readme.txt": b"extra",
-        }.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(data)
-            archive.addfile(info, BytesIO(data))
-    return buffer.getvalue()
-
-
 def _single_tool_zip_bytes(tool_name: str, data: bytes) -> bytes:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -209,6 +199,24 @@ def test_release_workflow_builds_native_macos_arm64_asset() -> None:
     assert "executable_name: yaatv-macos-arm64" in workflow
     assert "MACOS_ARM64_FFMPEG_ARCHIVE_URL" in workflow
     assert "platform.machine()" in workflow
+
+
+def test_windows_installer_uses_pinned_versioned_release_archive() -> None:
+    assert WINDOWS_FFMPEG_ARCHIVE_URL == (
+        "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip"
+    )
+    assert WINDOWS_FFMPEG_ARCHIVE_SHA256 == "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
+
+
+def test_linux_installer_uses_pinned_versioned_release_archives() -> None:
+    assert LINUX_FFMPEG_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
+    )
+    assert LINUX_FFPROBE_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
+    )
+    assert LINUX_FFMPEG_ARCHIVE_SHA256 == "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
+    assert LINUX_FFPROBE_ARCHIVE_SHA256 == "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
 
 
 def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
@@ -1539,21 +1547,22 @@ def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
         )
 
 
-def test_install_linux_ffmpeg_rejects_corrupt_tar(
+def test_install_linux_ffmpeg_rejects_corrupt_zip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    archive_bytes = b"not a tar archive"
+    archive_bytes = b"not a zip archive"
 
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(archive_bytes)
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
 
-    with pytest.raises(YaatvError, match="not a valid tar file"):
+    with pytest.raises(YaatvError, match="ffmpeg archive is not a valid ZIP file"):
         install_linux_ffmpeg(
             install_dir=tmp_path / "yaatv" / "bin",
-            expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            ffmpeg_expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            ffprobe_expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
             stderr=StringIO(),
         )
 
@@ -1704,18 +1713,23 @@ def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    archive_bytes = _ffmpeg_tar_bytes()
-    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"ffprobe")
+    archive_by_url = {
+        LINUX_FFMPEG_ARCHIVE_URL: ffmpeg_bytes,
+        LINUX_FFPROBE_ARCHIVE_URL: ffprobe_bytes,
+    }
 
-    def download(_url: str, destination: Path) -> None:
-        destination.write_bytes(archive_bytes)
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_linux_ffmpeg(
         install_dir=install_dir,
-        expected_sha256=expected_sha256,
+        ffmpeg_expected_sha256=hashlib.sha256(ffmpeg_bytes).hexdigest(),
+        ffprobe_expected_sha256=hashlib.sha256(ffprobe_bytes).hexdigest(),
         stderr=StringIO(),
     ) == install_dir
 
