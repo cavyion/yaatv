@@ -2421,6 +2421,14 @@ def test_normalize_output_path_accepts_supported_extension(filename: str) -> Non
     assert normalize_output_path(Path(filename)) == Path(filename)
 
 
+def test_normalize_output_path_rejects_file_parent(tmp_path: Path) -> None:
+    parent = tmp_path / "not-a-directory"
+    parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(YaatvError, match="Output directory is not a directory"):
+        normalize_output_path(parent / "out.mp4")
+
+
 def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
