@@ -1517,6 +1517,32 @@ def confirm_overwrite(path: Path, stdin: TextIO, stderr: TextIO, *, overwrite: b
     raise YaatvError("Aborted; output file was not overwritten.")
 
 
+def _discard_failed_output(
+    output_path: Path,
+    *,
+    existed_before: bool,
+    replace_allowed: bool,
+    stderr: TextIO,
+) -> None:
+    """Remove output that yaatv produced during a failed run.
+
+    A file that existed before the run is only removed when the user explicitly
+    allowed yaatv to replace it; otherwise it is left untouched. Cleanup
+    problems are reported as warnings so the original failure stays visible.
+    """
+    if existed_before and not replace_allowed:
+        return
+    if not output_path.exists():
+        return
+
+    try:
+        output_path.unlink()
+    except OSError as exc:
+        print(f"warning: could not remove partial output {output_path}: {exc}", file=stderr)
+        return
+    print(f"warning: removed partial output from failed run: {output_path}", file=stderr)
+
+
 def normalize_output_path(path: Path) -> Path:
     output_path = path.expanduser()
     if output_path.exists() and output_path.is_dir():
@@ -1887,21 +1913,37 @@ def run(
             print(quote_command(command), file=stderr)
             return 0
 
-        print("Encoding...", file=stderr)
-        exit_code = run_ffmpeg(command, verbose=args.verbose)
-        if exit_code != 0:
-            if not args.verbose:
-                print(
-                    f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
-                    file=stderr,
+        output_existed_before = output_path.exists()
+        try:
+            print("Encoding...", file=stderr)
+            exit_code = run_ffmpeg(command, verbose=args.verbose)
+            if exit_code != 0:
+                if not args.verbose:
+                    print(
+                        f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
+                        file=stderr,
+                    )
+                _discard_failed_output(
+                    output_path,
+                    existed_before=output_existed_before,
+                    replace_allowed=overwrite,
+                    stderr=stderr,
                 )
-            return exit_code
+                return exit_code
 
-        if ffprobe is None:
-            raise YaatvError("FFprobe was not resolved.")
-        print("Verifying...", file=stderr)
-        stats = probe_output(ffprobe, output_path)
-        verify_output_stats(stats, target_size, is_prores=is_prores)
+            if ffprobe is None:
+                raise YaatvError("FFprobe was not resolved.")
+            print("Verifying...", file=stderr)
+            stats = probe_output(ffprobe, output_path)
+            verify_output_stats(stats, target_size, is_prores=is_prores)
+        except YaatvError:
+            _discard_failed_output(
+                output_path,
+                existed_before=output_existed_before,
+                replace_allowed=overwrite,
+                stderr=stderr,
+            )
+            raise
         print_output_summary(output_path, stats, stderr=stderr)
         if args.open_folder:
             open_output_folder(output_path, stderr)

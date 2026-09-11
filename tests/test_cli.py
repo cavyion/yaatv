@@ -1523,6 +1523,219 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     assert f"Created {output_path}" in stderr.getvalue()
 
 
+def _mock_quick_encode_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path, Path]:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    return audio_path, image_path, output_path
+
+
+def test_failed_encode_removes_newly_created_partial_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    output = stderr.getvalue()
+    assert "error: FFmpeg failed with exit code 1" in output
+    assert f"warning: removed partial output from failed run: {output_path}" in output
+
+
+def test_failed_verification_removes_newly_created_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"video")
+        return 0
+
+    def probe(_ffprobe: str, _output_path: Path) -> OutputStats:
+        raise YaatvError("Could not verify output with FFprobe")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.cli.probe_output", probe)
+
+    with pytest.raises(YaatvError, match="Could not verify output"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_output_stats_verification_removes_rejected_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr(
+        "yaatv.cli.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=640,
+            height=360,
+            video_codec="mpeg4",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+        ),
+    )
+
+    with pytest.raises(YaatvError, match="Output verification failed"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_encode_without_output_creation_removes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    assert "removed partial output" not in stderr.getvalue()
+
+
+def test_failed_encode_removes_replaced_output_when_overwrite_was_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    output_path.write_bytes(b"previous output")
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_encode_never_touches_preexisting_output_without_permission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    output_path.write_bytes(b"previous output")
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("encoding must not start without overwrite permission")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    with pytest.raises(YaatvError, match="Output already exists"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=StringIO(),
+        )
+
+    assert output_path.read_bytes() == b"previous output"
+
+
+def test_output_cleanup_failure_warns_without_hiding_original_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    def locked_unlink(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("file is locked")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("pathlib.Path.unlink", locked_unlink)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    output = stderr.getvalue()
+    assert f"warning: could not remove partial output {output_path}: file is locked" in output
+    assert "error: FFmpeg failed with exit code 1" in output
+    assert output_path.read_bytes() == b"partial"
+
+
 def test_run_uses_output_dir_and_overwrite_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
