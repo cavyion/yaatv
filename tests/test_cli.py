@@ -266,7 +266,7 @@ def test_audio_and_image_are_required_for_encoding(
     with pytest.raises(YaatvError, match="Cover image is required"):
         run(["--audio", str(audio_path), "--bg-blur", "--dry-run"], stdin=StringIO(), stderr=StringIO())
 
-    with pytest.raises(YaatvError, match="Cover image is required"):
+    with pytest.raises(SystemExit):
         run(
             ["--audio", str(audio_path), "--bg-blur", "--bg-color", "white", "--dry-run"],
             stdin=StringIO(),
@@ -280,7 +280,7 @@ def test_audio_and_image_are_required_for_encoding(
             stderr=StringIO(),
         )
 
-    with pytest.raises(YaatvError, match="Cover image is required"):
+    with pytest.raises(SystemExit):
         run(
             ["--audio", str(audio_path), "--bg-image", str(background_path), "--bg-color", "white", "--dry-run"],
             stdin=StringIO(),
@@ -428,6 +428,63 @@ def test_background_color_validates_values() -> None:
 
     with pytest.raises(Exception, match="#RRGGBB"):
         background_color("#fff")
+
+
+def test_parse_args_rejects_bg_image_with_bg_blur() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-blur"])
+
+
+def test_parse_args_rejects_bg_color_with_bg_image() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-color", "red"])
+
+
+def test_parse_args_rejects_bg_color_with_bg_blur() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur", "--bg-color", "red"])
+
+
+def test_parse_args_accepts_cover_with_default_background() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg"])
+
+    assert args.bg_image is None
+    assert not args.bg_blur
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_cover_with_custom_background_color() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-color", "white"])
+
+    assert args.bg_color == "0xffffff"
+    assert args.bg_color_explicit
+    assert args.bg_image is None
+    assert not args.bg_blur
+
+
+def test_parse_args_accepts_cover_with_background_image() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg"])
+
+    assert args.bg_image == Path("bg.jpg")
+    assert not args.bg_blur
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_cover_with_blurred_background() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur"])
+
+    assert args.bg_blur
+    assert args.bg_image is None
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_color_only_output() -> None:
+    args = parse_args(["-a", "track.wav", "--bg-color", "white"])
+
+    assert args.bg_color == "0xffffff"
+    assert args.bg_color_explicit
+    assert args.bg_image is None
+    assert not args.bg_blur
 
 
 @pytest.mark.parametrize(
