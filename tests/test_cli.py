@@ -2385,6 +2385,13 @@ def test_normalize_output_path_rejects_missing_directory(tmp_path: Path) -> None
         normalize_output_path(tmp_path / "missing" / "out.mp4")
 
 
+def test_normalize_output_path_rejects_parent_that_is_not_a_directory(tmp_path: Path) -> None:
+    parent = tmp_path / "not-a-directory"
+    parent.write_text("file", encoding="utf-8")
+    with pytest.raises(YaatvError, match="Output directory is not a directory"):
+        normalize_output_path(parent / "out.mp4")
+
+
 def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 

@@ -1594,8 +1594,11 @@ def normalize_output_path(path: Path) -> Path:
     output_path = path.expanduser()
     if output_path.exists() and output_path.is_dir():
         raise YaatvError(f"Output path is a directory: {output_path}")
-    if output_path.parent != Path(".") and not output_path.parent.exists():
-        raise YaatvError(f"Output directory does not exist: {output_path.parent}")
+    parent = output_path.parent
+    if parent != Path(".") and not parent.exists():
+        raise YaatvError(f"Output directory does not exist: {parent}")
+    if parent != Path(".") and parent.exists() and not parent.is_dir():
+        raise YaatvError(f"Output directory is not a directory: {parent}")
     return output_path
 
 
