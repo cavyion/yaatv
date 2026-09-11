@@ -148,6 +148,16 @@ class OutputStats:
     duration: float | None = None
 
 
+@dataclass(frozen=True)
+class ToolHealth:
+    """Outcome of running a media tool's version command."""
+
+    path: str | None
+    state: str  # one of: "missing", "blocked", "failed", "ok"
+    version: str | None = None
+    detail: str | None = None
+
+
 def pad_seconds(value: str) -> float:
     try:
         seconds = float(value)
@@ -523,8 +533,6 @@ def resolve_ffmpeg_tools(
 
 def run_scry(stderr: TextIO = sys.stderr) -> int:
     failure = False
-    path_ffmpeg = shutil.which("ffmpeg")
-    path_ffprobe = shutil.which("ffprobe")
     app_bin_dir: Path | None
     app_supported = supports_app_managed_ffmpeg_install()
 
@@ -543,27 +551,24 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
 
     print("", file=stderr)
     print("Tools", file=stderr)
-    app_ffmpeg = app_bin_dir / tool_executable_name("ffmpeg") if app_bin_dir is not None else None
-    app_ffprobe = app_bin_dir / tool_executable_name("ffprobe") if app_bin_dir is not None else None
-    _print_tool_check("ffmpeg", app_ffmpeg, path_ffmpeg, stderr)
-    _print_tool_check("ffprobe", app_ffprobe, path_ffprobe, stderr)
+    selected: dict[str, ToolHealth] = {}
+    for name in ("ffmpeg", "ffprobe"):
+        app_tool = app_bin_dir / tool_executable_name(name) if app_bin_dir is not None else None
+        path_tool = shutil.which(name)
+        app_health = check_tool_health(str(app_tool) if app_tool is not None and app_tool.is_file() else None)
+        path_health = check_tool_health(path_tool)
+        _print_tool_check(name, app_tool, app_health, path_tool, path_health, stderr)
+        healthy = next((health for health in (app_health, path_health) if health.state == "ok"), None)
+        selected[name] = healthy if healthy is not None else (app_health if app_tool is not None else path_health)
 
-    selected_ffmpeg = str(app_ffmpeg) if app_ffmpeg is not None and app_ffmpeg.is_file() else path_ffmpeg
-    selected_ffprobe = str(app_ffprobe) if app_ffprobe is not None and app_ffprobe.is_file() else path_ffprobe
-    if selected_ffmpeg:
-        version = tool_version(selected_ffmpeg)
-        if version:
-            print(f"info  ffmpeg version: {version}", file=stderr)
-    if selected_ffprobe:
-        version = tool_version(selected_ffprobe)
-        if version:
-            print(f"info  ffprobe version: {version}", file=stderr)
-    if selected_ffmpeg is None or selected_ffprobe is None:
+    for name, health in selected.items():
+        if health.state == "ok" and health.version:
+            print(f"info  {name} version: {health.version}", file=stderr)
+
+    if any(health.state != "ok" for health in selected.values()):
         failure = True
         if app_supported:
             print("info  next step: run yaatv --install-ffmpeg", file=stderr)
-    if not app_supported and selected_ffmpeg is None and selected_ffprobe is None:
-        failure = True
 
     print("", file=stderr)
     print("Output", file=stderr)
@@ -576,29 +581,60 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
     return 1 if failure else 0
 
 
-def _print_tool_check(name: str, app_tool: Path | None, path_tool: str | None, stderr: TextIO) -> None:
-    if app_tool is not None and app_tool.is_file():
-        print(f"ok    {name}: {app_tool}", file=stderr)
-    elif app_tool is not None:
+def _print_tool_check(
+    name: str,
+    app_tool: Path | None,
+    app_health: ToolHealth,
+    path_tool: str | None,
+    path_health: ToolHealth,
+    stderr: TextIO,
+) -> None:
+    if app_tool is None:
+        print(f"warn  {name}: app-managed install is not supported on this system", file=stderr)
+    elif app_health.state == "missing":
         print(f"warn  {name}: not found in app-managed bin ({app_tool})", file=stderr)
     else:
-        print(f"warn  {name}: app-managed install is not supported on this system", file=stderr)
+        print(_tool_health_line(f"{name}: ", app_health), file=stderr)
 
-    if path_tool:
-        print(f"ok    {name} on PATH: {path_tool}", file=stderr)
-    else:
+    if path_tool is None:
         print(f"warn  {name} on PATH: not found", file=stderr)
+    else:
+        print(_tool_health_line(f"{name} on PATH: ", path_health), file=stderr)
 
 
-def tool_version(tool: str) -> str | None:
+def _tool_health_line(prefix: str, health: ToolHealth) -> str:
+    if health.state == "ok":
+        return f"ok    {prefix}{health.path}"
+    if health.state == "blocked":
+        return f"fail  {prefix}{health.path} exists but cannot execute ({health.detail})"
+    if health.state == "failed":
+        return f"fail  {prefix}{health.path} exited unsuccessfully ({health.detail})"
+    return f"warn  {prefix}not found"
+
+
+def check_tool_health(path: str | None) -> ToolHealth:
+    """Run a tool's version command; existence alone is not health."""
+
+    if path is None:
+        return ToolHealth(path=None, state="missing")
+
     try:
-        completed = subprocess.run([tool, "-version"], check=False, capture_output=True, text=True)
-    except OSError:
-        return None
-    if completed.returncode != 0:
-        return None
+        completed = subprocess.run([path, "-version"], check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        return ToolHealth(path=path, state="missing")
+    except OSError as exc:
+        return ToolHealth(path=path, state="blocked", detail=str(exc))
 
-    first_line = completed.stdout.splitlines()[0] if completed.stdout.splitlines() else ""
+    if completed.returncode != 0:
+        output = (completed.stderr or completed.stdout).strip()
+        detail = output.splitlines()[0] if output else None
+        return ToolHealth(path=path, state="failed", detail=detail)
+
+    return ToolHealth(path=path, state="ok", version=_parse_tool_version(completed.stdout))
+
+
+def _parse_tool_version(output: str) -> str | None:
+    first_line = output.splitlines()[0] if output.splitlines() else ""
     match = re.search(r"\bversion\s+([^\s]+)", first_line)
     return match.group(1) if match else first_line.strip() or None
 
@@ -1523,6 +1559,8 @@ def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> int:
             "FFmpeg was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
             f"or install it from {FFMPEG_DOWNLOAD_PAGE} and make sure ffmpeg is on PATH."
         ) from exc
+    except OSError as exc:
+        raise YaatvError(f"Could not run FFmpeg: {exc}") from exc
     return completed.returncode
 
 
@@ -1544,6 +1582,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
             "FFprobe was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
             f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE} and make sure ffprobe is on PATH."
         ) from exc
+    except OSError as exc:
+        raise YaatvError(f"Could not run FFprobe: {exc}") from exc
 
     if completed.returncode != 0:
         details = completed.stderr.strip()

@@ -30,12 +30,14 @@ from yaatv.cli import (
     AudioMetadata,
     AudioPlan,
     OutputStats,
+    ToolHealth,
     YaatvError,
     _download_url,
     _install_staged_tools,
     _should_pause_after_run,
     background_color,
     build_ffmpeg_command,
+    check_tool_health,
     choose_audio_plan,
     classify_files,
     confirm_overwrite,
@@ -1045,7 +1047,9 @@ def test_run_scry_succeeds_with_app_managed_tools(
     monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
     monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda name: str(app_bin / _executable_name(name)))
-    monkeypatch.setattr("yaatv.cli.tool_version", lambda tool: "7.1.4")
+    monkeypatch.setattr(
+        "yaatv.cli.check_tool_health", lambda path: ToolHealth(path=path, state="ok", version="7.1.4")
+    )
 
     assert run_scry(stderr=stderr) == 0
     output = stderr.getvalue()
@@ -1070,6 +1074,117 @@ def test_run_scry_fails_when_required_tools_are_missing(
     output = stderr.getvalue()
     assert "warn  ffmpeg: not found in app-managed bin" in output
     assert "warn  ffprobe on PATH: not found" in output
+
+
+def test_check_tool_health_reports_healthy_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["ffmpeg", "-version"]
+        stdout = "ffmpeg version 7.1.4-75731192 Copyright\nbuilt with gcc"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "ok"
+    assert health.version == "7.1.4-75731192"
+    assert health.detail is None
+
+
+def test_check_tool_health_reports_missing_tool(tmp_path: Path) -> None:
+    missing = tmp_path / "nowhere" / _executable_name("ffmpeg")
+
+    health = check_tool_health(str(missing))
+    assert health.state == "missing"
+    assert health.version is None
+
+    health = check_tool_health(None)
+    assert health.state == "missing"
+
+
+def test_check_tool_health_reports_tool_that_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tool = tmp_path / _executable_name("ffmpeg")
+    tool.write_bytes(b"")
+
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health(str(tool))
+    assert health.state == "blocked"
+    assert "Access is denied" in (health.detail or "")
+
+
+def test_check_tool_health_reports_tool_that_exits_unsuccessfully(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="error while loading shared libraries")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "failed"
+    assert "shared libraries" in (health.detail or "")
+
+
+def test_run_scry_fails_when_app_tool_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "yaatv.cli.check_tool_health",
+        lambda path: ToolHealth(path=path, state="blocked", detail="Access is denied"),
+    )
+
+    assert run_scry(stderr=stderr) == 1
+    output = stderr.getvalue()
+    broken_ffmpeg = f"{app_bin / _executable_name('ffmpeg')} exists but cannot execute (Access is denied)"
+    assert f"fail  ffmpeg: {broken_ffmpeg}" in output
+    assert "fail  ffprobe" in output
+    assert "info  next step: run yaatv --install-ffmpeg" in output
+
+
+def test_run_scry_accepts_healthy_path_tool_when_app_tool_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    other_bin = tmp_path / "other"
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: str(other_bin / _executable_name(name)))
+
+    def fake_check_tool_health(path: str | None) -> ToolHealth:
+        if path is not None and path.startswith(str(app_bin)):
+            return ToolHealth(path=path, state="blocked", detail="Access is denied")
+        return ToolHealth(path=path, state="ok", version="7.1")
+
+    monkeypatch.setattr("yaatv.cli.check_tool_health", fake_check_tool_health)
+
+    assert run_scry(stderr=stderr) == 0
+    output = stderr.getvalue()
+    broken_ffmpeg = f"{app_bin / _executable_name('ffmpeg')} exists but cannot execute (Access is denied)"
+    assert f"fail  ffmpeg: {broken_ffmpeg}" in output
+    assert f"ok    ffmpeg on PATH: {other_bin / _executable_name('ffmpeg')}" in output
+    assert "info  ffmpeg version: 7.1" in output
 
 
 def test_resolve_ffmpeg_tools_noninteractive_does_not_install(
@@ -1909,6 +2024,36 @@ def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatc
 
     assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
     assert captured["stderr"] is None
+
+
+def test_run_ffmpeg_reports_missing_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="FFmpeg was not found"):
+        run_ffmpeg(["ffmpeg", "-version"])
+
+
+def test_run_ffmpeg_reports_unrunnable_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="Could not run FFmpeg"):
+        run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"])
+
+
+def test_probe_output_reports_unrunnable_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="Could not run FFprobe"):
+        probe_output("ffprobe", Path("out.mp4"))
 
 
 def test_probe_output_reports_missing_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
