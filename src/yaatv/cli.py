@@ -9,11 +9,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import urllib.request
 import zipfile
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,18 +86,16 @@ FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
 FFMPEG_DOWNLOAD_USER_AGENT = f"yaatv/{__version__}"
 WINDOWS_FFMPEG_ARCHIVE_URL = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
-    "autobuild-2026-05-25-14-02/"
-    "ffmpeg-n7.1.4-6-g181cfa1008-win64-gpl-7.1.zip"
+    "https://github.com/GyanD/codexffmpeg/releases/download/"
+    "8.1.2/"
+    "ffmpeg-8.1.2-essentials_build.zip"
 )
-WINDOWS_FFMPEG_ARCHIVE_SHA256 = "a995684af075645484534ba84bc6a60320735395e1640d816f43b8d4a5b5775a"
+WINDOWS_FFMPEG_ARCHIVE_SHA256 = "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
 WINDOWS_FFMPEG_TOOLS = ("ffmpeg.exe", "ffprobe.exe")
-LINUX_FFMPEG_ARCHIVE_URL = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
-    "autobuild-2026-05-25-14-02/"
-    "ffmpeg-N-124633-gc79dfd29e6-linux64-gpl.tar.xz"
-)
-LINUX_FFMPEG_ARCHIVE_SHA256 = "de58117d6dd2c20e38e66febefe9732b00def28cf580195132478b64e679c8af"
+LINUX_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
+LINUX_FFMPEG_ARCHIVE_SHA256 = "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
+LINUX_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
+LINUX_FFPROBE_ARCHIVE_SHA256 = "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
 MACOS_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
 MACOS_FFMPEG_ARCHIVE_SHA256 = "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
 MACOS_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
@@ -149,6 +146,16 @@ class OutputStats:
     audio_codec: str | None
     audio_sample_rate: int | None
     duration: float | None = None
+
+
+@dataclass(frozen=True)
+class ToolHealth:
+    """Outcome of running a media tool's version command."""
+
+    path: str | None
+    state: str  # one of: "missing", "blocked", "failed", "ok"
+    version: str | None = None
+    detail: str | None = None
 
 
 def pad_seconds(value: str) -> float:
@@ -313,6 +320,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv_list)
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
+    if args.bg_image is not None and args.bg_blur:
+        parser.error("--bg-image and --bg-blur are mutually exclusive; use one or the other.")
+    if args.bg_color_explicit and (args.bg_image is not None or args.bg_blur):
+        parser.error(
+            "--bg-color has no effect when used with --bg-image or --bg-blur; "
+            "remove --bg-color or choose a different background mode."
+        )
     return args
 
 
@@ -526,8 +540,6 @@ def resolve_ffmpeg_tools(
 
 def run_scry(stderr: TextIO = sys.stderr) -> int:
     failure = False
-    path_ffmpeg = shutil.which("ffmpeg")
-    path_ffprobe = shutil.which("ffprobe")
     app_bin_dir: Path | None
     app_supported = supports_app_managed_ffmpeg_install()
 
@@ -546,27 +558,24 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
 
     print("", file=stderr)
     print("Tools", file=stderr)
-    app_ffmpeg = app_bin_dir / tool_executable_name("ffmpeg") if app_bin_dir is not None else None
-    app_ffprobe = app_bin_dir / tool_executable_name("ffprobe") if app_bin_dir is not None else None
-    _print_tool_check("ffmpeg", app_ffmpeg, path_ffmpeg, stderr)
-    _print_tool_check("ffprobe", app_ffprobe, path_ffprobe, stderr)
+    selected: dict[str, ToolHealth] = {}
+    for name in ("ffmpeg", "ffprobe"):
+        app_tool = app_bin_dir / tool_executable_name(name) if app_bin_dir is not None else None
+        path_tool = shutil.which(name)
+        app_health = check_tool_health(str(app_tool) if app_tool is not None and app_tool.is_file() else None)
+        path_health = check_tool_health(path_tool)
+        _print_tool_check(name, app_tool, app_health, path_tool, path_health, stderr)
+        healthy = next((health for health in (app_health, path_health) if health.state == "ok"), None)
+        selected[name] = healthy if healthy is not None else (app_health if app_tool is not None else path_health)
 
-    selected_ffmpeg = str(app_ffmpeg) if app_ffmpeg is not None and app_ffmpeg.is_file() else path_ffmpeg
-    selected_ffprobe = str(app_ffprobe) if app_ffprobe is not None and app_ffprobe.is_file() else path_ffprobe
-    if selected_ffmpeg:
-        version = tool_version(selected_ffmpeg)
-        if version:
-            print(f"info  ffmpeg version: {version}", file=stderr)
-    if selected_ffprobe:
-        version = tool_version(selected_ffprobe)
-        if version:
-            print(f"info  ffprobe version: {version}", file=stderr)
-    if selected_ffmpeg is None or selected_ffprobe is None:
+    for name, health in selected.items():
+        if health.state == "ok" and health.version:
+            print(f"info  {name} version: {health.version}", file=stderr)
+
+    if any(health.state != "ok" for health in selected.values()):
         failure = True
         if app_supported:
             print("info  next step: run yaatv --install-ffmpeg", file=stderr)
-    if not app_supported and selected_ffmpeg is None and selected_ffprobe is None:
-        failure = True
 
     print("", file=stderr)
     print("Output", file=stderr)
@@ -579,29 +588,60 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
     return 1 if failure else 0
 
 
-def _print_tool_check(name: str, app_tool: Path | None, path_tool: str | None, stderr: TextIO) -> None:
-    if app_tool is not None and app_tool.is_file():
-        print(f"ok    {name}: {app_tool}", file=stderr)
-    elif app_tool is not None:
+def _print_tool_check(
+    name: str,
+    app_tool: Path | None,
+    app_health: ToolHealth,
+    path_tool: str | None,
+    path_health: ToolHealth,
+    stderr: TextIO,
+) -> None:
+    if app_tool is None:
+        print(f"warn  {name}: app-managed install is not supported on this system", file=stderr)
+    elif app_health.state == "missing":
         print(f"warn  {name}: not found in app-managed bin ({app_tool})", file=stderr)
     else:
-        print(f"warn  {name}: app-managed install is not supported on this system", file=stderr)
+        print(_tool_health_line(f"{name}: ", app_health), file=stderr)
 
-    if path_tool:
-        print(f"ok    {name} on PATH: {path_tool}", file=stderr)
-    else:
+    if path_tool is None:
         print(f"warn  {name} on PATH: not found", file=stderr)
+    else:
+        print(_tool_health_line(f"{name} on PATH: ", path_health), file=stderr)
 
 
-def tool_version(tool: str) -> str | None:
+def _tool_health_line(prefix: str, health: ToolHealth) -> str:
+    if health.state == "ok":
+        return f"ok    {prefix}{health.path}"
+    if health.state == "blocked":
+        return f"fail  {prefix}{health.path} exists but cannot execute ({health.detail})"
+    if health.state == "failed":
+        return f"fail  {prefix}{health.path} exited unsuccessfully ({health.detail})"
+    return f"warn  {prefix}not found"
+
+
+def check_tool_health(path: str | None) -> ToolHealth:
+    """Run a tool's version command; existence alone is not health."""
+
+    if path is None:
+        return ToolHealth(path=None, state="missing")
+
     try:
-        completed = subprocess.run([tool, "-version"], check=False, capture_output=True, text=True)
-    except OSError:
-        return None
-    if completed.returncode != 0:
-        return None
+        completed = subprocess.run([path, "-version"], check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        return ToolHealth(path=path, state="missing")
+    except OSError as exc:
+        return ToolHealth(path=path, state="blocked", detail=str(exc))
 
-    first_line = completed.stdout.splitlines()[0] if completed.stdout.splitlines() else ""
+    if completed.returncode != 0:
+        output = (completed.stderr or completed.stdout).strip()
+        detail = output.splitlines()[0] if output else None
+        return ToolHealth(path=path, state="failed", detail=detail)
+
+    return ToolHealth(path=path, state="ok", version=_parse_tool_version(completed.stdout))
+
+
+def _parse_tool_version(output: str) -> str | None:
+    first_line = output.splitlines()[0] if output.splitlines() else ""
     match = re.search(r"\bversion\s+([^\s]+)", first_line)
     return match.group(1) if match else first_line.strip() or None
 
@@ -645,7 +685,7 @@ def install_windows_ffmpeg(
         archive_path = temp_dir / "ffmpeg.zip"
         staging_dir = temp_dir / "bin"
 
-        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg", stderr)
+        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg for Windows x64", stderr)
         _extract_windows_ffmpeg_tools(archive_path, staging_dir)
         return _finish_ffmpeg_install(staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False, stderr=stderr)
 
@@ -653,8 +693,10 @@ def install_windows_ffmpeg(
 def install_linux_ffmpeg(
     *,
     install_dir: Path | None = None,
-    archive_url: str = LINUX_FFMPEG_ARCHIVE_URL,
-    expected_sha256: str = LINUX_FFMPEG_ARCHIVE_SHA256,
+    ffmpeg_archive_url: str = LINUX_FFMPEG_ARCHIVE_URL,
+    ffmpeg_expected_sha256: str = LINUX_FFMPEG_ARCHIVE_SHA256,
+    ffprobe_archive_url: str = LINUX_FFPROBE_ARCHIVE_URL,
+    ffprobe_expected_sha256: str = LINUX_FFPROBE_ARCHIVE_SHA256,
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
@@ -664,11 +706,16 @@ def install_linux_ffmpeg(
 
     with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
         temp_dir = Path(temp_name)
-        archive_path = temp_dir / "ffmpeg.tar.xz"
         staging_dir = temp_dir / "bin"
+        downloads = (
+            (ffmpeg_archive_url, temp_dir / "ffmpeg.zip", ffmpeg_expected_sha256, "ffmpeg"),
+            (ffprobe_archive_url, temp_dir / "ffprobe.zip", ffprobe_expected_sha256, "ffprobe"),
+        )
 
-        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg", stderr)
-        _extract_tar_ffmpeg_tools(archive_path, staging_dir)
+        for archive_url, archive_path, expected_sha256, tool_name in downloads:
+            _download_and_verify_archive(archive_url, archive_path, expected_sha256, tool_name, stderr)
+            _extract_zip_tool(archive_path, staging_dir, tool_name)
+
         return _finish_ffmpeg_install(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr)
 
 
@@ -772,14 +819,54 @@ def _install_staged_tools(
                 created_target.unlink(missing_ok=True)
             raise YaatvError(f"Could not stage {tool_name} for install: {exc}") from exc
 
+    # Snapshot phase: move any existing installed tools aside so the whole pair
+    # can be restored if a later replacement fails. This makes the install
+    # transactional rather than atomic: either the full new pair is committed,
+    # or the directory is rolled back to its previous state.
+    backups: dict[Path, Path] = {}
     try:
         for temp_target in temp_targets:
             tool_name = temp_target.name.removeprefix(".").removesuffix(".tmp")
-            os.replace(temp_target, install_dir / tool_name)
+            final_target = install_dir / tool_name
+            if final_target.exists():
+                backup_target = install_dir / f".{tool_name}.bak"
+                if backup_target.exists():
+                    backup_target.unlink()
+                os.replace(final_target, backup_target)
+                backups[backup_target] = final_target
     except OSError as exc:
-        for temp_target in temp_targets:
-            temp_target.unlink(missing_ok=True)
+        _rollback_install(temp_targets, backups, [])
         raise YaatvError(f"Could not install FFmpeg tools: {exc}") from exc
+
+    # Commit phase: replace each installed tool with the staged copy.
+    committed: list[Path] = []
+    try:
+        for temp_target in temp_targets:
+            tool_name = temp_target.name.removeprefix(".").removesuffix(".tmp")
+            final_target = install_dir / tool_name
+            os.replace(temp_target, final_target)
+            committed.append(final_target)
+    except OSError as exc:
+        _rollback_install(temp_targets, backups, committed)
+        raise YaatvError(f"Could not install FFmpeg tools: {exc}") from exc
+
+    for backup_target in backups:
+        backup_target.unlink(missing_ok=True)
+
+
+def _rollback_install(temp_targets: Sequence[Path], backups: Mapping[Path, Path], committed: Sequence[Path]) -> None:
+    """Best-effort restore of the installation directory to its previous state."""
+
+    for final_target in committed:
+        final_target.unlink(missing_ok=True)
+    for temp_target in temp_targets:
+        temp_target.unlink(missing_ok=True)
+    for backup_target, final_target in backups.items():
+        try:
+            os.replace(backup_target, final_target)
+        except OSError:
+            # The backup file is left in place so the previous tool is not lost.
+            pass
 
 
 def _download_url(url: str, destination: Path) -> None:
@@ -843,38 +930,6 @@ def _find_ffmpeg_zip_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile
     if not candidates:
         raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
     return sorted(candidates, key=lambda member: member.filename)[0]
-
-
-def _extract_tar_ffmpeg_tools(archive_path: Path, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    try:
-        with tarfile.open(archive_path) as archive:
-            for tool_name in UNIX_FFMPEG_TOOLS:
-                member = _find_ffmpeg_tar_member(archive, tool_name)
-                source = archive.extractfile(member)
-                if source is None:
-                    raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
-                with source:
-                    with (destination / tool_name).open("wb") as output:
-                        shutil.copyfileobj(source, output)
-    except tarfile.TarError as exc:
-        raise YaatvError("FFmpeg archive is not a valid tar file.") from exc
-
-
-def _find_ffmpeg_tar_member(archive: tarfile.TarFile, tool_name: str) -> tarfile.TarInfo:
-    normalized_tool = tool_name.lower()
-    candidates = []
-    for member in archive.getmembers():
-        normalized_name = member.name.replace("\\", "/").lower()
-        if not member.isfile():
-            continue
-        if normalized_name != f"bin/{normalized_tool}" and not normalized_name.endswith(f"/bin/{normalized_tool}"):
-            continue
-        candidates.append(member)
-
-    if not candidates:
-        raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
-    return sorted(candidates, key=lambda member: member.name)[0]
 
 
 def _extract_zip_tool(archive_path: Path, destination: Path, tool_name: str) -> None:
@@ -1509,6 +1564,32 @@ def confirm_overwrite(path: Path, stdin: TextIO, stderr: TextIO, *, overwrite: b
     raise YaatvError("Aborted; output file was not overwritten.")
 
 
+def _discard_failed_output(
+    output_path: Path,
+    *,
+    existed_before: bool,
+    replace_allowed: bool,
+    stderr: TextIO,
+) -> None:
+    """Remove output that yaatv produced during a failed run.
+
+    A file that existed before the run is only removed when the user explicitly
+    allowed yaatv to replace it; otherwise it is left untouched. Cleanup
+    problems are reported as warnings so the original failure stays visible.
+    """
+    if existed_before and not replace_allowed:
+        return
+    if not output_path.exists():
+        return
+
+    try:
+        output_path.unlink()
+    except OSError as exc:
+        print(f"warning: could not remove partial output {output_path}: {exc}", file=stderr)
+        return
+    print(f"warning: removed partial output from failed run: {output_path}", file=stderr)
+
+
 def normalize_output_path(path: Path) -> Path:
     output_path = path.expanduser()
     if output_path.exists() and output_path.is_dir():
@@ -1551,6 +1632,8 @@ def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> int:
             "FFmpeg was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
             f"or install it from {FFMPEG_DOWNLOAD_PAGE} and make sure ffmpeg is on PATH."
         ) from exc
+    except OSError as exc:
+        raise YaatvError(f"Could not run FFmpeg: {exc}") from exc
     return completed.returncode
 
 
@@ -1572,6 +1655,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
             "FFprobe was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "
             f"or install FFmpeg from {FFMPEG_DOWNLOAD_PAGE} and make sure ffprobe is on PATH."
         ) from exc
+    except OSError as exc:
+        raise YaatvError(f"Could not run FFprobe: {exc}") from exc
 
     if completed.returncode != 0:
         details = completed.stderr.strip()
@@ -1875,21 +1960,37 @@ def run(
             print(quote_command(command), file=stderr)
             return 0
 
-        print("Encoding...", file=stderr)
-        exit_code = run_ffmpeg(command, verbose=args.verbose)
-        if exit_code != 0:
-            if not args.verbose:
-                print(
-                    f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
-                    file=stderr,
+        output_existed_before = output_path.exists()
+        try:
+            print("Encoding...", file=stderr)
+            exit_code = run_ffmpeg(command, verbose=args.verbose)
+            if exit_code != 0:
+                if not args.verbose:
+                    print(
+                        f"error: FFmpeg failed with exit code {exit_code}. Rerun with --verbose to show FFmpeg output.",
+                        file=stderr,
+                    )
+                _discard_failed_output(
+                    output_path,
+                    existed_before=output_existed_before,
+                    replace_allowed=overwrite,
+                    stderr=stderr,
                 )
-            return exit_code
+                return exit_code
 
-        if ffprobe is None:
-            raise YaatvError("FFprobe was not resolved.")
-        print("Verifying...", file=stderr)
-        stats = probe_output(ffprobe, output_path)
-        verify_output_stats(stats, target_size, is_prores=is_prores)
+            if ffprobe is None:
+                raise YaatvError("FFprobe was not resolved.")
+            print("Verifying...", file=stderr)
+            stats = probe_output(ffprobe, output_path)
+            verify_output_stats(stats, target_size, is_prores=is_prores)
+        except YaatvError:
+            _discard_failed_output(
+                output_path,
+                existed_before=output_existed_before,
+                replace_allowed=overwrite,
+                stderr=stderr,
+            )
+            raise
         print_output_summary(output_path, stats, stderr=stderr)
         if args.open_folder:
             open_output_folder(output_path, stderr)

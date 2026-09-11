@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 import sys
-import tarfile
 import zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -15,6 +14,10 @@ from PIL import Image
 from yaatv import __version__
 from yaatv.cli import (
     FFMPEG_DOWNLOAD_USER_AGENT,
+    LINUX_FFMPEG_ARCHIVE_SHA256,
+    LINUX_FFMPEG_ARCHIVE_URL,
+    LINUX_FFPROBE_ARCHIVE_SHA256,
+    LINUX_FFPROBE_ARCHIVE_URL,
     MACOS_ARM64_FFMPEG_ARCHIVE_URL,
     MACOS_ARM64_FFPROBE_ARCHIVE_URL,
     MACOS_FFMPEG_ARCHIVE_SHA256,
@@ -22,15 +25,19 @@ from yaatv.cli import (
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
     OUTPUT_SIZES,
+    WINDOWS_FFMPEG_ARCHIVE_SHA256,
+    WINDOWS_FFMPEG_ARCHIVE_URL,
     AudioMetadata,
     AudioPlan,
     OutputStats,
+    ToolHealth,
     YaatvError,
     _download_url,
     _install_staged_tools,
     _should_pause_after_run,
     background_color,
     build_ffmpeg_command,
+    check_tool_health,
     choose_audio_plan,
     classify_files,
     confirm_overwrite,
@@ -130,21 +137,6 @@ def _background_blur_filter(width: int, height: int, *, pixel_format: str = "yuv
     )
 
 
-def _ffmpeg_tar_bytes() -> bytes:
-    buffer = BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:xz") as archive:
-        for name, data in {
-            "ffmpeg-build/bin/ffmpeg": b"ffmpeg",
-            "ffmpeg-build/bin/ffprobe": b"ffprobe",
-            "ffmpeg-build/bin/ffplay": b"ffplay",
-            "ffmpeg-build/doc/readme.txt": b"extra",
-        }.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(data)
-            archive.addfile(info, BytesIO(data))
-    return buffer.getvalue()
-
-
 def _single_tool_zip_bytes(tool_name: str, data: bytes) -> bytes:
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -211,6 +203,24 @@ def test_release_workflow_builds_native_macos_arm64_asset() -> None:
     assert "platform.machine()" in workflow
 
 
+def test_windows_installer_uses_pinned_versioned_release_archive() -> None:
+    assert WINDOWS_FFMPEG_ARCHIVE_URL == (
+        "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip"
+    )
+    assert WINDOWS_FFMPEG_ARCHIVE_SHA256 == "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
+
+
+def test_linux_installer_uses_pinned_versioned_release_archives() -> None:
+    assert LINUX_FFMPEG_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
+    )
+    assert LINUX_FFPROBE_ARCHIVE_URL == (
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
+    )
+    assert LINUX_FFMPEG_ARCHIVE_SHA256 == "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
+    assert LINUX_FFPROBE_ARCHIVE_SHA256 == "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
+
+
 def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
     assert MACOS_FFMPEG_ARCHIVE_URL == (
         "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
@@ -256,7 +266,7 @@ def test_audio_and_image_are_required_for_encoding(
     with pytest.raises(YaatvError, match="Cover image is required"):
         run(["--audio", str(audio_path), "--bg-blur", "--dry-run"], stdin=StringIO(), stderr=StringIO())
 
-    with pytest.raises(YaatvError, match="Cover image is required"):
+    with pytest.raises(SystemExit):
         run(
             ["--audio", str(audio_path), "--bg-blur", "--bg-color", "white", "--dry-run"],
             stdin=StringIO(),
@@ -270,7 +280,7 @@ def test_audio_and_image_are_required_for_encoding(
             stderr=StringIO(),
         )
 
-    with pytest.raises(YaatvError, match="Cover image is required"):
+    with pytest.raises(SystemExit):
         run(
             ["--audio", str(audio_path), "--bg-image", str(background_path), "--bg-color", "white", "--dry-run"],
             stdin=StringIO(),
@@ -418,6 +428,63 @@ def test_background_color_validates_values() -> None:
 
     with pytest.raises(Exception, match="#RRGGBB"):
         background_color("#fff")
+
+
+def test_parse_args_rejects_bg_image_with_bg_blur() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-blur"])
+
+
+def test_parse_args_rejects_bg_color_with_bg_image() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-color", "red"])
+
+
+def test_parse_args_rejects_bg_color_with_bg_blur() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur", "--bg-color", "red"])
+
+
+def test_parse_args_accepts_cover_with_default_background() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg"])
+
+    assert args.bg_image is None
+    assert not args.bg_blur
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_cover_with_custom_background_color() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-color", "white"])
+
+    assert args.bg_color == "0xffffff"
+    assert args.bg_color_explicit
+    assert args.bg_image is None
+    assert not args.bg_blur
+
+
+def test_parse_args_accepts_cover_with_background_image() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg"])
+
+    assert args.bg_image == Path("bg.jpg")
+    assert not args.bg_blur
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_cover_with_blurred_background() -> None:
+    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur"])
+
+    assert args.bg_blur
+    assert args.bg_image is None
+    assert not args.bg_color_explicit
+
+
+def test_parse_args_accepts_color_only_output() -> None:
+    args = parse_args(["-a", "track.wav", "--bg-color", "white"])
+
+    assert args.bg_color == "0xffffff"
+    assert args.bg_color_explicit
+    assert args.bg_image is None
+    assert not args.bg_blur
 
 
 @pytest.mark.parametrize(
@@ -1037,7 +1104,9 @@ def test_run_scry_succeeds_with_app_managed_tools(
     monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
     monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda name: str(app_bin / _executable_name(name)))
-    monkeypatch.setattr("yaatv.cli.tool_version", lambda tool: "7.1.4")
+    monkeypatch.setattr(
+        "yaatv.cli.check_tool_health", lambda path: ToolHealth(path=path, state="ok", version="7.1.4")
+    )
 
     assert run_scry(stderr=stderr) == 0
     output = stderr.getvalue()
@@ -1062,6 +1131,117 @@ def test_run_scry_fails_when_required_tools_are_missing(
     output = stderr.getvalue()
     assert "warn  ffmpeg: not found in app-managed bin" in output
     assert "warn  ffprobe on PATH: not found" in output
+
+
+def test_check_tool_health_reports_healthy_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["ffmpeg", "-version"]
+        stdout = "ffmpeg version 7.1.4-75731192 Copyright\nbuilt with gcc"
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "ok"
+    assert health.version == "7.1.4-75731192"
+    assert health.detail is None
+
+
+def test_check_tool_health_reports_missing_tool(tmp_path: Path) -> None:
+    missing = tmp_path / "nowhere" / _executable_name("ffmpeg")
+
+    health = check_tool_health(str(missing))
+    assert health.state == "missing"
+    assert health.version is None
+
+    health = check_tool_health(None)
+    assert health.state == "missing"
+
+
+def test_check_tool_health_reports_tool_that_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tool = tmp_path / _executable_name("ffmpeg")
+    tool.write_bytes(b"")
+
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health(str(tool))
+    assert health.state == "blocked"
+    assert "Access is denied" in (health.detail or "")
+
+
+def test_check_tool_health_reports_tool_that_exits_unsuccessfully(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="error while loading shared libraries")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "failed"
+    assert "shared libraries" in (health.detail or "")
+
+
+def test_run_scry_fails_when_app_tool_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "yaatv.cli.check_tool_health",
+        lambda path: ToolHealth(path=path, state="blocked", detail="Access is denied"),
+    )
+
+    assert run_scry(stderr=stderr) == 1
+    output = stderr.getvalue()
+    broken_ffmpeg = f"{app_bin / _executable_name('ffmpeg')} exists but cannot execute (Access is denied)"
+    assert f"fail  ffmpeg: {broken_ffmpeg}" in output
+    assert "fail  ffprobe" in output
+    assert "info  next step: run yaatv --install-ffmpeg" in output
+
+
+def test_run_scry_accepts_healthy_path_tool_when_app_tool_cannot_execute(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    other_bin = tmp_path / "other"
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: str(other_bin / _executable_name(name)))
+
+    def fake_check_tool_health(path: str | None) -> ToolHealth:
+        if path is not None and path.startswith(str(app_bin)):
+            return ToolHealth(path=path, state="blocked", detail="Access is denied")
+        return ToolHealth(path=path, state="ok", version="7.1")
+
+    monkeypatch.setattr("yaatv.cli.check_tool_health", fake_check_tool_health)
+
+    assert run_scry(stderr=stderr) == 0
+    output = stderr.getvalue()
+    broken_ffmpeg = f"{app_bin / _executable_name('ffmpeg')} exists but cannot execute (Access is denied)"
+    assert f"fail  ffmpeg: {broken_ffmpeg}" in output
+    assert f"ok    ffmpeg on PATH: {other_bin / _executable_name('ffmpeg')}" in output
+    assert "info  ffmpeg version: 7.1" in output
 
 
 def test_resolve_ffmpeg_tools_noninteractive_does_not_install(
@@ -1400,6 +1580,219 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     assert f"Created {output_path}" in stderr.getvalue()
 
 
+def _mock_quick_encode_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path, Path]:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    return audio_path, image_path, output_path
+
+
+def test_failed_encode_removes_newly_created_partial_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    output = stderr.getvalue()
+    assert "error: FFmpeg failed with exit code 1" in output
+    assert f"warning: removed partial output from failed run: {output_path}" in output
+
+
+def test_failed_verification_removes_newly_created_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"video")
+        return 0
+
+    def probe(_ffprobe: str, _output_path: Path) -> OutputStats:
+        raise YaatvError("Could not verify output with FFprobe")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.cli.probe_output", probe)
+
+    with pytest.raises(YaatvError, match="Could not verify output"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_output_stats_verification_removes_rejected_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr(
+        "yaatv.cli.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=640,
+            height=360,
+            video_codec="mpeg4",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+        ),
+    )
+
+    with pytest.raises(YaatvError, match="Output verification failed"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_encode_without_output_creation_removes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    assert "removed partial output" not in stderr.getvalue()
+
+
+def test_failed_encode_removes_replaced_output_when_overwrite_was_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    output_path.write_bytes(b"previous output")
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert not output_path.exists()
+    assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+
+def test_failed_encode_never_touches_preexisting_output_without_permission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    output_path.write_bytes(b"previous output")
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("encoding must not start without overwrite permission")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    with pytest.raises(YaatvError, match="Output already exists"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=StringIO(),
+        )
+
+    assert output_path.read_bytes() == b"previous output"
+
+
+def test_output_cleanup_failure_warns_without_hiding_original_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        output_path.write_bytes(b"partial")
+        return 1
+
+    def locked_unlink(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("file is locked")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("pathlib.Path.unlink", locked_unlink)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    output = stderr.getvalue()
+    assert f"warning: could not remove partial output {output_path}: file is locked" in output
+    assert "error: FFmpeg failed with exit code 1" in output
+    assert output_path.read_bytes() == b"partial"
+
+
 def test_run_uses_output_dir_and_overwrite_flag(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1539,21 +1932,22 @@ def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
         )
 
 
-def test_install_linux_ffmpeg_rejects_corrupt_tar(
+def test_install_linux_ffmpeg_rejects_corrupt_zip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    archive_bytes = b"not a tar archive"
+    archive_bytes = b"not a zip archive"
 
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(archive_bytes)
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
 
-    with pytest.raises(YaatvError, match="not a valid tar file"):
+    with pytest.raises(YaatvError, match="ffmpeg archive is not a valid ZIP file"):
         install_linux_ffmpeg(
             install_dir=tmp_path / "yaatv" / "bin",
-            expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            ffmpeg_expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
+            ffprobe_expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
             stderr=StringIO(),
         )
 
@@ -1676,6 +2070,116 @@ def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
     assert not (install_dir / ".ffmpeg.tmp").exists()
 
 
+def test_install_staged_tools_rolls_back_full_pair_when_second_replace_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffmpeg").write_bytes(b"old ffmpeg")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    real_replace = os.replace
+    call_count = 0
+
+    def replace(source: Path, target: Path) -> None:
+        nonlocal call_count
+        call_count += 1
+        # Let the snapshot phase (calls 1-2) and first commit (call 3) succeed.
+        # Fail on the second commit (call 4) so the rollback (calls 5-6) can run.
+        if call_count == 4:
+            raise OSError("locked")
+        real_replace(source, target)
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"old ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"old ffprobe"
+    assert not (install_dir / ".ffmpeg.tmp").exists()
+    assert not (install_dir / ".ffprobe.tmp").exists()
+    assert not (install_dir / ".ffmpeg.bak").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
+def test_install_staged_tools_rolls_back_pair_when_only_one_tool_existed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    real_replace = os.replace
+
+    def replace(source: Path, target: Path) -> None:
+        if Path(target).name == "ffmpeg":
+            raise OSError("locked")
+        real_replace(source, target)
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert not (install_dir / "ffmpeg").exists()
+    assert (install_dir / "ffprobe").read_bytes() == b"old ffprobe"
+    assert not (install_dir / ".ffmpeg.tmp").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
+def test_install_staged_tools_first_install_rolls_back_to_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+
+    def replace(_source: Path, _target: Path) -> None:
+        raise OSError("locked")
+
+    monkeypatch.setattr("os.replace", replace)
+
+    with pytest.raises(YaatvError, match="Could not install FFmpeg tools"):
+        _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert list(install_dir.iterdir()) == []
+
+
+def test_install_staged_tools_removes_backups_after_successful_install(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_dir = tmp_path / "staging"
+    install_dir = tmp_path / "install"
+    staging_dir.mkdir()
+    install_dir.mkdir()
+    (staging_dir / "ffmpeg").write_bytes(b"new ffmpeg")
+    (staging_dir / "ffprobe").write_bytes(b"new ffprobe")
+    (install_dir / "ffmpeg").write_bytes(b"old ffmpeg")
+    (install_dir / "ffprobe").write_bytes(b"old ffprobe")
+
+    _install_staged_tools(staging_dir, install_dir, ("ffmpeg", "ffprobe"), executable=False)
+
+    assert (install_dir / "ffmpeg").read_bytes() == b"new ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"new ffprobe"
+    assert not (install_dir / ".ffmpeg.bak").exists()
+    assert not (install_dir / ".ffprobe.bak").exists()
+
+
 def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1704,18 +2208,23 @@ def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    archive_bytes = _ffmpeg_tar_bytes()
-    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"ffprobe")
+    archive_by_url = {
+        LINUX_FFMPEG_ARCHIVE_URL: ffmpeg_bytes,
+        LINUX_FFPROBE_ARCHIVE_URL: ffprobe_bytes,
+    }
 
-    def download(_url: str, destination: Path) -> None:
-        destination.write_bytes(archive_bytes)
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_linux_ffmpeg(
         install_dir=install_dir,
-        expected_sha256=expected_sha256,
+        ffmpeg_expected_sha256=hashlib.sha256(ffmpeg_bytes).hexdigest(),
+        ffprobe_expected_sha256=hashlib.sha256(ffprobe_bytes).hexdigest(),
         stderr=StringIO(),
     ) == install_dir
 
@@ -1895,6 +2404,36 @@ def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatc
 
     assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
     assert captured["stderr"] is None
+
+
+def test_run_ffmpeg_reports_missing_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="FFmpeg was not found"):
+        run_ffmpeg(["ffmpeg", "-version"])
+
+
+def test_run_ffmpeg_reports_unrunnable_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="Could not run FFmpeg"):
+        run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"])
+
+
+def test_probe_output_reports_unrunnable_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(YaatvError, match="Could not run FFprobe"):
+        probe_output("ffprobe", Path("out.mp4"))
 
 
 def test_probe_output_reports_missing_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:

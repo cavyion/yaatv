@@ -1,0 +1,46 @@
+name: Installer health
+
+# yaatv --install-ffmpeg depends on third-party FFmpeg artifact servers whose
+# retention policies can break silently. Regular CI installs FFmpeg through the
+# package manager and never exercises the installer, so this job runs the real
+# installer on every supported release platform on a schedule instead.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install FFmpeg on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+          - os: ubuntu-latest
+          - os: macos-15-intel
+          - os: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install yaatv
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Install FFmpeg through yaatv
+        run: yaatv --install-ffmpeg
+
+      - name: Check installed tools
+        run: yaatv --scry

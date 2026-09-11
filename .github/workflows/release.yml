@@ -85,6 +85,8 @@ jobs:
           from yaatv.cli import (
               LINUX_FFMPEG_ARCHIVE_SHA256,
               LINUX_FFMPEG_ARCHIVE_URL,
+              LINUX_FFPROBE_ARCHIVE_SHA256,
+              LINUX_FFPROBE_ARCHIVE_URL,
               MACOS_ARM64_FFMPEG_ARCHIVE_SHA256,
               MACOS_ARM64_FFMPEG_ARCHIVE_URL,
               MACOS_ARM64_FFPROBE_ARCHIVE_SHA256,
@@ -110,8 +112,10 @@ jobs:
               print(r"Install path: %LOCALAPPDATA%\yaatv\bin")
               print("Extracted files: ffmpeg.exe, ffprobe.exe")
           elif runner_os == "Linux":
-              print(f"Installer archive source: {LINUX_FFMPEG_ARCHIVE_URL}")
-              print(f"Installer archive sha256: {LINUX_FFMPEG_ARCHIVE_SHA256}")
+              print(f"Installer ffmpeg source: {LINUX_FFMPEG_ARCHIVE_URL}")
+              print(f"Installer ffmpeg sha256: {LINUX_FFMPEG_ARCHIVE_SHA256}")
+              print(f"Installer ffprobe source: {LINUX_FFPROBE_ARCHIVE_URL}")
+              print(f"Installer ffprobe sha256: {LINUX_FFPROBE_ARCHIVE_SHA256}")
               print("Install path: $XDG_DATA_HOME/yaatv/bin, or ~/.local/share/yaatv/bin")
               print("Extracted files: ffmpeg, ffprobe")
           elif runner_os == "macOS":
