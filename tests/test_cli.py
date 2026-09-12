@@ -986,16 +986,26 @@ def test_low_bitrate_warning_is_reported() -> None:
     assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
 
 
-def test_small_cover_warning_recommends_target_size() -> None:
+@pytest.mark.parametrize(
+    ("image_size", "recommended_size"),
+    [
+        ((640, 640), "1080x1080"),
+        ((400, 600), "720x1080"),
+        ((960, 540), "1920x1080"),
+    ],
+)
+def test_small_cover_warning_recommends_fitted_size(
+    image_size: tuple[int, int], recommended_size: str
+) -> None:
     warnings = quality_warnings(
         AudioMetadata(codec="mp3", bitrate=320_000, sample_rate=48_000, artist=None, title=None),
-        image_size=(640, 640),
+        image_size=image_size,
         target_size=(1920, 1080),
     )
 
     assert warnings == [
-        "cover image is 640x640; FFmpeg will upscale it for 1920x1080. "
-        "Consider using an image at least 1920x1080"
+        f"cover image is {image_size[0]}x{image_size[1]}; FFmpeg will upscale it for 1920x1080. "
+        f"Consider using an image at least {recommended_size}"
     ]
 
 
