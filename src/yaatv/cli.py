@@ -1269,9 +1269,12 @@ def quality_warnings(
         target_width, target_height = target_size
         scale_factor = min(target_width / image_width, target_height / image_height)
         if scale_factor > 1:
+            recommended_width = math.ceil(image_width * scale_factor)
+            recommended_height = math.ceil(image_height * scale_factor)
             warnings.append(
                 f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
-                f"{target_width}x{target_height}. Consider using an image at least {target_width}x{target_height}"
+                f"{target_width}x{target_height}. Consider using an image at least "
+                f"{recommended_width}x{recommended_height}"
             )
 
     return warnings
