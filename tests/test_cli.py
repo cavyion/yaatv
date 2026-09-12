@@ -25,6 +25,7 @@ from yaatv.cli import (
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
     OUTPUT_SIZES,
+    TOOL_HEALTH_TIMEOUT_SECONDS,
     WINDOWS_FFMPEG_ARCHIVE_SHA256,
     WINDOWS_FFMPEG_ARCHIVE_URL,
     AudioMetadata,
@@ -1229,6 +1230,18 @@ def test_check_tool_health_reports_tool_that_exits_unsuccessfully(monkeypatch: p
     health = check_tool_health("ffmpeg")
     assert health.state == "failed"
     assert "shared libraries" in (health.detail or "")
+
+
+def test_check_tool_health_reports_tool_that_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == TOOL_HEALTH_TIMEOUT_SECONDS
+        raise subprocess.TimeoutExpired(command, timeout=TOOL_HEALTH_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "failed"
+    assert health.detail == f"did not respond within {TOOL_HEALTH_TIMEOUT_SECONDS} seconds"
 
 
 def test_run_scry_fails_when_app_tool_cannot_execute(

@@ -86,6 +86,7 @@ WINDOWS_RESERVED_FILENAMES = {
 }
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
+TOOL_HEALTH_TIMEOUT_SECONDS = 5
 FFMPEG_DOWNLOAD_USER_AGENT = f"yaatv/{__version__}"
 WINDOWS_FFMPEG_ARCHIVE_URL = (
     "https://github.com/GyanD/codexffmpeg/releases/download/"
@@ -638,9 +639,16 @@ def check_tool_health(path: str | None) -> ToolHealth:
             check=False,
             capture_output=True,
             text=True,
+            timeout=TOOL_HEALTH_TIMEOUT_SECONDS,
         )  # nosec B603
     except FileNotFoundError:
         return ToolHealth(path=path, state="missing")
+    except subprocess.TimeoutExpired:
+        return ToolHealth(
+            path=path,
+            state="failed",
+            detail=f"did not respond within {TOOL_HEALTH_TIMEOUT_SECONDS} seconds",
+        )
     except OSError as exc:
         return ToolHealth(path=path, state="blocked", detail=str(exc))
 
