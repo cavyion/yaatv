@@ -986,6 +986,26 @@ def test_low_bitrate_warning_is_reported() -> None:
     assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
 
 
+def test_low_bitrate_warning_is_reported_without_image() -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec="mp3", bitrate=192_000, sample_rate=44_100, artist=None, title=None),
+        image_size=None,
+        target_size=(1920, 1080),
+    )
+
+    assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
+
+
+def test_quality_warnings_without_image_has_no_warnings_for_good_audio() -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        image_size=None,
+        target_size=(1920, 1080),
+    )
+
+    assert warnings == []
+
+
 def test_small_cover_warning_recommends_target_size() -> None:
     warnings = quality_warnings(
         AudioMetadata(codec="mp3", bitrate=320_000, sample_rate=48_000, artist=None, title=None),
@@ -2017,6 +2037,49 @@ def test_run_dry_run_allows_color_only_output(
     assert "color=c=0xffffff:s=1920x1080:d=12.1" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
+
+
+def test_run_dry_run_color_only_warns_on_low_bitrate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.mp3"
+    output_path = tmp_path / "out.mp4"
+    audio_path.write_bytes(b"audio")
+    stderr = StringIO()
+
+    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.cli.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="mp3",
+            bitrate=192_000,
+            sample_rate=44_100,
+            artist=None,
+            title=None,
+            duration=12.1,
+        ),
+    )
+
+    def encode(_command: list[str], *, verbose: bool = False) -> int:
+        raise AssertionError("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+
+    assert run(
+        ["-a", str(audio_path), "--bg-color", "red", "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+    assert "warning: source audio bitrate is 192kbps, below the 256kbps warning threshold" in stderr.getvalue()
+
+    stderr_no_warn = StringIO()
+    assert run(
+        ["-a", str(audio_path), "--bg-color", "red", "-o", str(output_path), "--dry-run", "--no-warn"],
+        stdin=StringIO(),
+        stderr=stderr_no_warn,
+    ) == 0
+    assert "below the 256kbps warning threshold" not in stderr_no_warn.getvalue()
 
 
 def test_install_ffmpeg_rejects_checksum_failure(
