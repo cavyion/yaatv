@@ -47,6 +47,7 @@ from yaatv.cli import (
     find_external_tool,
     format_duration,
     format_file_details,
+    format_file_size,
     format_output_stats,
     input_format_warnings,
     install_linux_ffmpeg,
@@ -2872,3 +2873,20 @@ def test_verify_output_stats_rejects_wrong_profile() -> None:
 
     with pytest.raises(YaatvError, match="expected 1920x1080"):
         verify_output_stats(stats, (1920, 1080))
+
+def test_format_file_size_uses_kb_below_one_megabyte() -> None:
+    assert format_file_size(512 * 1024) == "512.0 KB"
+
+
+def test_format_file_size_uses_mb_for_ordinary_files() -> None:
+    assert format_file_size(2 * 1024 * 1024) == "2.0 MB"
+
+
+def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
+    assert format_file_size(1024 * 1024 * 1024) == "1.0 GB"
+
+
+def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
+    assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
+
+
