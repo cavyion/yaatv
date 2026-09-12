@@ -19,3 +19,4 @@
 - [ ] I have added or updated tests for any changed behavior.
 - [ ] I have updated README or docs if user-facing behavior, options, or requirements changed.
 - [ ] I have not committed build outputs, virtual environments, media files, or secrets.
+- [ ] I have not edited CONTRIBUTORS.md (maintainers update this upon merge).

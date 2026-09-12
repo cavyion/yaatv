@@ -38,3 +38,10 @@ body:
       label: Additional context
       description: Mention any relevant file formats, FFmpeg filters, or platforms this depends on.
 
+  - type: checkboxes
+    id: willingness-to-fix
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to submit a pull request for this issue.
+

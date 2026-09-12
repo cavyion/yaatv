@@ -116,6 +116,7 @@ Before opening a PR:
 - Add or update tests for behavior changes.
 - Update README or docs when user-facing behavior changes.
 - Do not commit generated build outputs, local media files, virtual environments, secrets, or machine-specific files.
+- Do not edit CONTRIBUTORS.md in your PR. Maintainers add contributors upon merge.
 - Run the checks you can run locally.
 
 If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed or split.
@@ -123,6 +124,20 @@ If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed
 ### Merging and credit
 
 Pull requests are squash-merged into `main` to keep commit history clean. Your original git authorship is always preserved on the squash commit. If multiple people collaborated on a PR, maintainers will add `Co-authored-by:` trailers so everyone receives credit.
+
+### Resolving merge conflicts
+
+If changes land on `main` that conflict with your PR branch:
+
+1. Fetch the latest `main` from upstream:
+   ```sh
+   git fetch upstream main
+   ```
+2. Merge upstream `main` into your topic branch:
+   ```sh
+   git merge upstream/main
+   ```
+3. Reconcile the conflicting files, run checks (`python scripts/check.py --fast`), and push the resolution to your fork. Avoid closing and reopening duplicate pull requests.
 
 ## Versioning
 
