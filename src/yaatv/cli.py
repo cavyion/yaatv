@@ -1255,7 +1255,7 @@ def is_aac_codec(codec: str | None) -> bool:
 
 def quality_warnings(
     metadata: AudioMetadata,
-    image_size: tuple[int, int],
+    image_size: tuple[int, int] | None,
     target_size: tuple[int, int],
 ) -> list[str]:
     warnings: list[str] = []
@@ -1264,14 +1264,15 @@ def quality_warnings(
             f"source audio bitrate is {metadata.bitrate // 1000}kbps, below the 256kbps warning threshold"
         )
 
-    image_width, image_height = image_size
-    target_width, target_height = target_size
-    scale_factor = min(target_width / image_width, target_height / image_height)
-    if scale_factor > 1:
-        warnings.append(
-            f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
-            f"{target_width}x{target_height}. Consider using an image at least {target_width}x{target_height}"
-        )
+    if image_size is not None:
+        image_width, image_height = image_size
+        target_width, target_height = target_size
+        scale_factor = min(target_width / image_width, target_height / image_height)
+        if scale_factor > 1:
+            warnings.append(
+                f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
+                f"{target_width}x{target_height}. Consider using an image at least {target_width}x{target_height}"
+            )
 
     return warnings
 
@@ -1977,8 +1978,7 @@ def run(
 
         if not args.no_warn:
             warnings = input_format_warnings(audio_path, image_path, bg_image_path)
-            if image_size is not None:
-                warnings.extend(quality_warnings(metadata, image_size, target_size))
+            warnings.extend(quality_warnings(metadata, image_size, target_size))
             for warning in [
                 *warnings,
             ]:

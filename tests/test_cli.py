@@ -1995,9 +1995,11 @@ def test_run_uses_output_dir_and_overwrite_flag(
     assert str(output_path) in captured["command"]
 
 
+@pytest.mark.parametrize("no_warn", [False, True])
 def test_run_dry_run_allows_color_only_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    no_warn: bool,
 ) -> None:
     audio_path = tmp_path / "track.flac"
     output_path = tmp_path / "out.mp4"
@@ -2009,7 +2011,7 @@ def test_run_dry_run_allows_color_only_output(
         "yaatv.cli.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
-            bitrate=900_000,
+            bitrate=192_000,
             sample_rate=44_100,
             artist=None,
             title=None,
@@ -2022,13 +2024,15 @@ def test_run_dry_run_allows_color_only_output(
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
 
-    assert run(
-        ["-a", str(audio_path), "--bg-color", "white", "-o", str(output_path), "--dry-run"],
-        stdin=StringIO(),
-        stderr=stderr,
-    ) == 0
-    assert "color=c=0xffffff:s=1920x1080:d=12.1" in stderr.getvalue()
-    assert str(output_path) in stderr.getvalue()
+    args = ["-a", str(audio_path), "--bg-color", "white", "-o", str(output_path), "--dry-run"]
+    if no_warn:
+        args.append("--no-warn")
+
+    assert run(args, stdin=StringIO(), stderr=stderr) == 0
+    output = stderr.getvalue()
+    assert "color=c=0xffffff:s=1920x1080:d=12.1" in output
+    assert str(output_path) in output
+    assert ("warning: source audio bitrate is 192kbps" in output) is not no_warn
     assert not output_path.exists()
 
 
