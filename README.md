@@ -239,6 +239,7 @@ workflows, and guidelines.
 
 - Look through [good first issues](https://github.com/yaatv/yaatv/labels/good%20first%20issue)
   to get started.
+- Leave a comment to claim an issue before starting work to avoid duplicate PRs.
 - Report bugs or suggest features on the [issue tracker](https://github.com/yaatv/yaatv/issues).
 - See [CONTRIBUTORS.md](CONTRIBUTORS.md) for recognition of everyone who has helped
   build and test yaatv.

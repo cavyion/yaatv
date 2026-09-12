@@ -90,3 +90,10 @@ body:
       label: Sample file or reproduction notes
       description: Share a small non-copyrighted sample file or steps if possible. Do not attach copyrighted music or artwork.
 
+  - type: checkboxes
+    id: willingness-to-fix
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to submit a pull request for this issue.
+

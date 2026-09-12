@@ -13,8 +13,10 @@
 ## Contributor Checklist
 
 - [ ] This PR addresses one focused change.
+- [ ] No open pull request already addresses this issue (or I have noted in the summary why this supersedes an existing one).
 - [ ] I understand and can explain every changed line in this PR.
 - [ ] I have tested these changes locally (including any code written with AI assistance).
 - [ ] I have added or updated tests for any changed behavior.
 - [ ] I have updated README or docs if user-facing behavior, options, or requirements changed.
 - [ ] I have not committed build outputs, virtual environments, media files, or secrets.
+- [ ] I have not edited CONTRIBUTORS.md (maintainers update this upon merge).

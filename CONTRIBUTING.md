@@ -47,35 +47,37 @@ Using AI tools (such as Copilot, ChatGPT, or code assistants) to research, draft
 
 Getting started with a contribution follows a straightforward flow:
 
-1. **Fork and clone**:
+1. **Find or claim an issue**:
+   Check open issues and existing pull requests first. Leave a comment on the issue you plan to address before starting work so others know it is claimed and to avoid duplicate PRs.
+2. **Fork and clone**:
    ```sh
    git clone https://github.com/<your-username>/yaatv.git
    cd yaatv
    ```
-2. **Create a virtual environment**:
+3. **Create a virtual environment**:
    ```sh
    python -m venv .venv
    ```
    Activate it:
    - Windows: `.\.venv\Scripts\activate`
    - Linux / macOS: `source .venv/bin/activate`
-3. **Install development dependencies**:
+4. **Install development dependencies**:
    ```sh
    python -m pip install -e ".[dev]"
    ```
-4. **Create a topic branch**:
+5. **Create a topic branch**:
    ```sh
    git checkout -b fix/brief-description
    ```
-5. **Run targeted tests during development**:
+6. **Run targeted tests during development**:
    ```sh
    python -m pytest tests/test_cli.py -k <test_name_or_keyword>
    ```
-6. **Run project checks before submitting**:
+7. **Run project checks before submitting**:
    ```sh
    python scripts/check.py
    ```
-7. **Submit a pull request**: Push your branch to your fork and open a pull request against `main`.
+8. **Submit a pull request**: Push your branch to your fork and open a pull request against `main`.
 
 ## Development setup
 
@@ -107,11 +109,14 @@ Some tests require FFmpeg and FFprobe to be available.
 
 Before opening a PR:
 
+- Check open pull requests to ensure someone else hasn't already submitted a fix for the same issue.
+- Comment on the issue to claim it before starting work. If an issue is already claimed or has an active PR, coordinate on the issue thread first.
 - Open an issue first for large features, behavior changes, packaging changes, or architecture changes.
 - Keep the PR focused on one change.
 - Add or update tests for behavior changes.
 - Update README or docs when user-facing behavior changes.
 - Do not commit generated build outputs, local media files, virtual environments, secrets, or machine-specific files.
+- Do not edit CONTRIBUTORS.md in your PR. Maintainers add contributors upon merge.
 - Run the checks you can run locally.
 
 If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed or split.
@@ -119,6 +124,20 @@ If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed
 ### Merging and credit
 
 Pull requests are squash-merged into `main` to keep commit history clean. Your original git authorship is always preserved on the squash commit. If multiple people collaborated on a PR, maintainers will add `Co-authored-by:` trailers so everyone receives credit.
+
+### Resolving merge conflicts
+
+If changes land on `main` that conflict with your PR branch:
+
+1. Fetch the latest `main` from upstream:
+   ```sh
+   git fetch upstream main
+   ```
+2. Merge upstream `main` into your topic branch:
+   ```sh
+   git merge upstream/main
+   ```
+3. Reconcile the conflicting files, run checks (`python scripts/check.py --fast`), and push the resolution to your fork. Avoid closing and reopening duplicate pull requests.
 
 ## Versioning
 
