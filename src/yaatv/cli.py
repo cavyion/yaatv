@@ -86,6 +86,7 @@ WINDOWS_RESERVED_FILENAMES = {
 }
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
+TOOL_HEALTH_TIMEOUT_SECONDS = 5
 FFMPEG_DOWNLOAD_USER_AGENT = f"yaatv/{__version__}"
 WINDOWS_FFMPEG_ARCHIVE_URL = (
     "https://github.com/GyanD/codexffmpeg/releases/download/"
@@ -638,9 +639,16 @@ def check_tool_health(path: str | None) -> ToolHealth:
             check=False,
             capture_output=True,
             text=True,
+            timeout=TOOL_HEALTH_TIMEOUT_SECONDS,
         )  # nosec B603
     except FileNotFoundError:
         return ToolHealth(path=path, state="missing")
+    except subprocess.TimeoutExpired:
+        return ToolHealth(
+            path=path,
+            state="failed",
+            detail=f"did not respond within {TOOL_HEALTH_TIMEOUT_SECONDS} seconds",
+        )
     except OSError as exc:
         return ToolHealth(path=path, state="blocked", detail=str(exc))
 
@@ -1247,7 +1255,7 @@ def is_aac_codec(codec: str | None) -> bool:
 
 def quality_warnings(
     metadata: AudioMetadata,
-    image_size: tuple[int, int],
+    image_size: tuple[int, int] | None,
     target_size: tuple[int, int],
 ) -> list[str]:
     warnings: list[str] = []
@@ -1256,17 +1264,18 @@ def quality_warnings(
             f"source audio bitrate is {metadata.bitrate // 1000}kbps, below the 256kbps warning threshold"
         )
 
-    image_width, image_height = image_size
-    target_width, target_height = target_size
-    scale_factor = min(target_width / image_width, target_height / image_height)
-    if scale_factor > 1:
-        recommended_width = math.ceil(image_width * scale_factor)
-        recommended_height = math.ceil(image_height * scale_factor)
-        warnings.append(
-            f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
-            f"{target_width}x{target_height}. Consider using an image at least "
-            f"{recommended_width}x{recommended_height}"
-        )
+    if image_size is not None:
+        image_width, image_height = image_size
+        target_width, target_height = target_size
+        scale_factor = min(target_width / image_width, target_height / image_height)
+        if scale_factor > 1:
+            recommended_width = math.ceil(image_width * scale_factor)
+            recommended_height = math.ceil(image_height * scale_factor)
+            warnings.append(
+                f"cover image is {image_width}x{image_height}; FFmpeg will upscale it for "
+                f"{target_width}x{target_height}. Consider using an image at least "
+                f"{recommended_width}x{recommended_height}"
+            )
 
     return warnings
 
@@ -1818,7 +1827,9 @@ def format_file_details(output_path: Path, duration: float | None) -> str | None
 def format_file_size(size: int) -> str:
     if size < 1024 * 1024:
         return f"{size / 1024:.1f} KB"
-    return f"{size / (1024 * 1024):.1f} MB"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
 
 def format_duration(seconds: float) -> str:
@@ -1972,8 +1983,7 @@ def run(
 
         if not args.no_warn:
             warnings = input_format_warnings(audio_path, image_path, bg_image_path)
-            if image_size is not None:
-                warnings.extend(quality_warnings(metadata, image_size, target_size))
+            warnings.extend(quality_warnings(metadata, image_size, target_size))
             for warning in [
                 *warnings,
             ]:

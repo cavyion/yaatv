@@ -25,6 +25,7 @@ from yaatv.cli import (
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
     OUTPUT_SIZES,
+    TOOL_HEALTH_TIMEOUT_SECONDS,
     WINDOWS_FFMPEG_ARCHIVE_SHA256,
     WINDOWS_FFMPEG_ARCHIVE_URL,
     AudioMetadata,
@@ -46,6 +47,7 @@ from yaatv.cli import (
     find_external_tool,
     format_duration,
     format_file_details,
+    format_file_size,
     format_output_stats,
     input_format_warnings,
     install_linux_ffmpeg,
@@ -1241,6 +1243,18 @@ def test_check_tool_health_reports_tool_that_exits_unsuccessfully(monkeypatch: p
     assert "shared libraries" in (health.detail or "")
 
 
+def test_check_tool_health_reports_tool_that_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert kwargs["timeout"] == TOOL_HEALTH_TIMEOUT_SECONDS
+        raise subprocess.TimeoutExpired(command, timeout=TOOL_HEALTH_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    health = check_tool_health("ffmpeg")
+    assert health.state == "failed"
+    assert health.detail == f"did not respond within {TOOL_HEALTH_TIMEOUT_SECONDS} seconds"
+
+
 def test_run_scry_fails_when_app_tool_cannot_execute(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1992,9 +2006,11 @@ def test_run_uses_output_dir_and_overwrite_flag(
     assert str(output_path) in captured["command"]
 
 
+@pytest.mark.parametrize("no_warn", [False, True])
 def test_run_dry_run_allows_color_only_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    no_warn: bool,
 ) -> None:
     audio_path = tmp_path / "track.flac"
     output_path = tmp_path / "out.mp4"
@@ -2006,7 +2022,7 @@ def test_run_dry_run_allows_color_only_output(
         "yaatv.cli.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
-            bitrate=900_000,
+            bitrate=192_000,
             sample_rate=44_100,
             artist=None,
             title=None,
@@ -2019,13 +2035,15 @@ def test_run_dry_run_allows_color_only_output(
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
 
-    assert run(
-        ["-a", str(audio_path), "--bg-color", "white", "-o", str(output_path), "--dry-run"],
-        stdin=StringIO(),
-        stderr=stderr,
-    ) == 0
-    assert "color=c=0xffffff:s=1920x1080:d=12.1" in stderr.getvalue()
-    assert str(output_path) in stderr.getvalue()
+    args = ["-a", str(audio_path), "--bg-color", "white", "-o", str(output_path), "--dry-run"]
+    if no_warn:
+        args.append("--no-warn")
+
+    assert run(args, stdin=StringIO(), stderr=stderr) == 0
+    output = stderr.getvalue()
+    assert "color=c=0xffffff:s=1920x1080:d=12.1" in output
+    assert str(output_path) in output
+    assert ("warning: source audio bitrate is 192kbps" in output) is not no_warn
     assert not output_path.exists()
 
 
@@ -2865,3 +2883,18 @@ def test_verify_output_stats_rejects_wrong_profile() -> None:
 
     with pytest.raises(YaatvError, match="expected 1920x1080"):
         verify_output_stats(stats, (1920, 1080))
+
+def test_format_file_size_uses_kb_below_one_megabyte() -> None:
+    assert format_file_size(512 * 1024) == "512.0 KB"
+
+
+def test_format_file_size_uses_mb_for_ordinary_files() -> None:
+    assert format_file_size(2 * 1024 * 1024) == "2.0 MB"
+
+
+def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
+    assert format_file_size(1024 * 1024 * 1024) == "1.0 GB"
+
+
+def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
+    assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
