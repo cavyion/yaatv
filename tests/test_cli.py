@@ -401,6 +401,17 @@ def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
     assert "yaatv --scry" in help_text
 
 
+def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        parse_args(["--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out.replace("\n", " ")
+    collapsed = " ".join(help_text.split()).replace("- ", "-")
+    assert "Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)" in collapsed
+    assert "Path to cover image (required unless using --install-ffmpeg, --scry, positional files, or color-only output)" in collapsed
+
+
 def test_classify_files_detects_audio_and_image_in_any_order() -> None:
     assert classify_files([Path("track.flac"), Path("cover.jpg")]) == (Path("track.flac"), Path("cover.jpg"))
     assert classify_files([Path("cover.PNG"), Path("track.MP3")]) == (Path("track.MP3"), Path("cover.PNG"))
