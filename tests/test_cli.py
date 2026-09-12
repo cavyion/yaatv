@@ -409,7 +409,10 @@ def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFi
     help_text = capsys.readouterr().out.replace("\n", " ")
     collapsed = " ".join(help_text.split()).replace("- ", "-")
     assert "Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)" in collapsed
-    assert "Path to cover image (required unless using --install-ffmpeg, --scry, positional files, or color-only output)" in collapsed
+    assert (
+        "Path to cover image (required unless using --install-ffmpeg, "
+        "--scry, positional files, or color-only output)"
+    ) in collapsed
 
 
 def test_classify_files_detects_audio_and_image_in_any_order() -> None:

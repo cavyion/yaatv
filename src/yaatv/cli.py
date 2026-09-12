@@ -229,7 +229,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "-i",
         "--image",
         type=Path,
-        help="Path to cover image (required unless using --install-ffmpeg, --scry, positional files, or color-only output)",
+        help=(
+            "Path to cover image (required unless using --install-ffmpeg, "
+            "--scry, positional files, or color-only output)"
+        ),
     )
     parser.add_argument(
         "-b",
