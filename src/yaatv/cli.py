@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -165,7 +166,7 @@ def pad_seconds(value: str) -> float:
     except ValueError as exc:
         raise argparse.ArgumentTypeError("--pad must be a number of seconds") from exc
 
-    if seconds < 0 or seconds > 10:
+    if not math.isfinite(seconds) or seconds < 0 or seconds > 10:
         raise argparse.ArgumentTypeError("--pad must be between 0 and 10 seconds")
     return seconds
 

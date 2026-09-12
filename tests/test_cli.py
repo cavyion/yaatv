@@ -1061,6 +1061,12 @@ def test_pad_seconds_validates_range() -> None:
         pad_seconds("11")
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "+inf", "NaN", "Infinity"])
+def test_pad_seconds_rejects_non_finite_values(value: str) -> None:
+    with pytest.raises(Exception, match="between 0 and 10"):
+        pad_seconds(value)
+
+
 def test_sanitize_filename_has_fallback() -> None:
     assert sanitize_filename(' <>:"/\\|?* ') == "_________"
 
